@@ -1,0 +1,4 @@
+LIBRARY DeepImageThumbs
+EXPORTS
+    DllCanUnloadNow PRIVATE
+    DllGetClassObject PRIVATE

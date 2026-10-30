@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#262A52"/>
+      <stop offset=".55" stop-color="#14162C"/>
+      <stop offset="1" stop-color="#0A0B16"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".5" cy=".55" r=".5">
+      <stop offset="0" stop-color="#6E7BFF" stop-opacity=".55"/>
+      <stop offset=".6" stop-color="#6E7BFF" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#6E7BFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E4E8FF"/>
+      <stop offset="1" stop-color="#A9B3FF"/>
+    </linearGradient>
+    <linearGradient id="left" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6F7DFF"/>
+      <stop offset="1" stop-color="#4251E8"/>
+    </linearGradient>
+    <linearGradient id="right" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2E37A8"/>
+      <stop offset="1" stop-color="#1A1F6E"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".14"/>
+      <stop offset=".5" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#bg)"/>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#sheen)"/>
+  <rect x="34" y="34" width="956" height="956" rx="222" fill="none" stroke="#fff" stroke-opacity=".08" stroke-width="4"/>
+  <circle cx="512" cy="540" r="420" fill="url(#glow)"/>
+  <!-- cube -->
+  <g stroke-linejoin="round">
+    <path d="M512 214 772 364 512 514 252 364Z" fill="url(#top)"/>
+    <path d="M252 364 512 514V814L252 664Z" fill="url(#left)"/>
+    <path d="M512 514 772 364V664L512 814Z" fill="url(#right)"/>
+    <!-- image printed on the left face -->
+    <g transform="matrix(2.6 1.5 0 3 252 364)">
+      <path d="M12 86 38 52 54 70 67 57 90 86Z" fill="#fff" fill-opacity=".92"/>
+      <circle cx="70" cy="32" r="9" fill="#FFD66B"/>
+    </g>
+    <!-- wireframe hint on the right face -->
+    <g stroke="#9AA6FF" stroke-opacity=".55" stroke-width="5" fill="none">
+      <path d="M642 439V739"/>
+      <path d="M512 664 772 514"/>
+    </g>
+    <!-- crisp edges -->
+    <path d="M512 214 772 364 512 514 252 364Z" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="5"/>
+    <path d="M512 514V814" stroke="#fff" stroke-opacity=".25" stroke-width="4"/>
+  </g>
+</svg>

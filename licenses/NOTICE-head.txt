@@ -1,0 +1,20 @@
+DeepImage Viewer 1.0.0
+Copyright (c) DMIND <dmind114@gmail.com>
+DeepImage Viewer itself is released under the MIT License.
+
+Viewer architecture inspired by nomacs (https://github.com/nomacs/nomacs); no nomacs code is included.
+3D thumbnail approach based on DMIND 3D Thumbnail (MIT).
+
+Third-party components
+----------------------
+* Open CASCADE Technology 7.9.3 - GNU LGPL 2.1 with the OCCT exception.
+  Statically linked into dvmodel.dll. The complete DeepImage source code and build scripts are provided
+  with this program so that dvmodel.dll can be rebuilt and relinked against a modified OCCT.
+  OCCT source: https://github.com/Open-Cascade-SAS/OCCT (tag V7_9_3).
+* Assimp 6.0.5 - BSD 3-Clause.
+* miniz - MIT.  * stb_image - public domain / MIT.
+* Pretendard - SIL Open Font License 1.1.
+* Lucide icons - ISC.
+* LLVM / mingw-w64 runtime - Apache 2.0 with LLVM exception / ZPL 2.1.
+
+Full license texts follow.
