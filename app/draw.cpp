@@ -238,8 +238,6 @@ void App::drawEmpty() {
     float cx = cxOf(rcStage);
     float top = rcStage.top + std::max(40.f, (rh(rcStage) - 520) / 2);
     if (markBmp) {
-        // soft drop shadow
-        for (int i = 1; i <= 5; ++i) G.fill(RW(cx - 52 + i, top + 18 + i * 2.5f, 104 - i * 2, 104), withA(P.accent, .045f), 26 + i * 2);
         G.dc->DrawBitmap(markBmp.Get(), RW(cx - 52, top, 104, 104), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
     }
     float y = top + 126;
