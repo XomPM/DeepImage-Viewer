@@ -401,7 +401,7 @@ void App::drawModelStage() {
 
 void App::drawPrintButton() {
     std::wstring label = T("print3d");
-    float w = G.textWidth(label, 12, 600) + 52;
+    float w = G.textWidth(label, 12, 600) + 47;
     const float right = rcViewport.right - 14 - 92 - 14; // left of the axis gizmo
     D2D1_RECT_F r = RW(right - w, rcViewport.bottom - 44, w, 32);
     uint64_t id = hid("print3d");
@@ -413,7 +413,7 @@ void App::drawPrintButton() {
     G.stroke(r, P.glassLine, 9, 1);
     D2D1_COLOR_F c = hot ? P.text : P.text2;
     G.icon("printer", r.left + 19, cyOf(r), 16, c);
-    G.text(label, R(r.left + 42, r.top, r.right - 8, r.bottom), 12, c, 600);
+    G.text(label, R(r.left + 37, r.top, r.right - 8, r.bottom), 12, c, 600);
 }
 
 void App::drawGizmo() {

@@ -239,9 +239,9 @@ void Gfx::icon(const char* name, float cx, float cy, float size, const D2D1_COLO
         for (size_t p; (p = b.find("currentColor")) != std::string::npos;) b.replace(p, 12, hex);
         char head[400];
         snprintf(head, sizeof head,
-                 "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"%s\" "
+                 "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%.2f\" height=\"%.2f\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"%s\" "
                  "stroke-opacity=\"%.3f\" stroke-width=\"%.2f\" stroke-linecap=\"round\" stroke-linejoin=\"round\">",
-                 hex, c.a, sw);
+                 size, size, hex, c.a, sw);
         std::string svg = std::string(head) + b + "</svg>";
         ComPtr<IStream> st;
         st.Attach(SHCreateMemStream((const BYTE*)svg.data(), (UINT)svg.size()));

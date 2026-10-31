@@ -46,13 +46,17 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     buildPalette(S.theme == 0 ? systemDarkMode() : S.theme == 2, systemAccentRgb(), S.accent == 0);
 
     std::wstring file;
-    for (int i = 1; i < argc; ++i)
-        if (argv[i][0] != L'-') { file = argv[i]; break; }
+    bool settings = false;
+    for (int i = 1; i < argc; ++i) {
+        if (!wcscmp(argv[i], L"--settings")) settings = true;
+        else if (argv[i][0] != L'-' && file.empty()) file = argv[i];
+    }
     LocalFree(argv);
 
     if (!A.create(inst, L"")) return 1;
     A.markBmp = loadMark(inst);
     if (!file.empty()) A.openPath(file);
+    if (settings) A.openSettings();
     A.requestPaint();
 
     MSG msg;
