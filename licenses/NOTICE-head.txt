@@ -1,4 +1,4 @@
-DeepImage Viewer 1.0.0
+DeepImage Viewer 1.0.1
 Copyright (c) DMIND <dmind114@gmail.com>
 DeepImage Viewer itself is released under the MIT License.
 

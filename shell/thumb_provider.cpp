@@ -73,12 +73,28 @@ public:
                 return thumbnail::thumbnail_from_gltf_file(file_, size,
                     std::filesystem::path(path).parent_path() / L"DeepImage.exe", temporary, bitmap, alpha);
             }
-            return thumbnail::thumbnail_from_stream(stream_.Get(), format_.extension, size,
+            // a ProgID shared by several extensions (e.g. Bambu Studio's) can route an .stl to the 3MF handler:
+            // decide the format from the real file name, not from the CLSID that happened to be called
+            return thumbnail::thumbnail_from_stream(stream_.Get(), stream_extension(), size,
                 std::filesystem::path(path).parent_path() / L"DeepImage.exe", temporary, bitmap, alpha);
         } catch (const std::bad_alloc&) { return E_OUTOFMEMORY; }
           catch (...) { return E_FAIL; }
     }
 private:
+    const wchar_t* stream_extension() const {
+        const wchar_t* result = format_.extension;
+        STATSTG stats{};
+        if (stream_ && SUCCEEDED(stream_->Stat(&stats, STATFLAG_DEFAULT)) && stats.pwcsName) {
+            if (const wchar_t* dot = wcsrchr(stats.pwcsName, L'.')) {
+                for (const auto& f : thumbnail::kShellFormats) {
+                    if (f.requires_file) { continue; }
+                    if (_wcsicmp(dot, f.extension) == 0 || (f.extra && _wcsicmp(dot, f.extra) == 0)) { result = f.extension; break; }
+                }
+            }
+            CoTaskMemFree(stats.pwcsName);
+        }
+        return result;
+    }
     std::atomic<ULONG> references_{1};
     const thumbnail::ShellFormat& format_;
     ComPtr<IStream> stream_;

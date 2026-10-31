@@ -1,7 +1,7 @@
 # DeepImage Viewer — native Windows build (x64 / ARM64)
 # Copyright (c) DMIND <dmind114@gmail.com>. MIT License.
 cmake_minimum_required(VERSION 3.20)
-project(DeepImageViewer VERSION 1.0.0 LANGUAGES C CXX RC)
+project(DeepImageViewer VERSION 1.0.1 LANGUAGES C CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,7 +34,7 @@ add_executable(DeepImage WIN32
     app/main.cpp app/window.cpp app/draw.cpp app/actions.cpp app/common.cpp app/i18n.cpp app/settings.cpp app/gfx.cpp app/ui.cpp
     app/image.cpp app/imageview.cpp app/model3d.cpp app/thumbs.cpp app/info.cpp app/edit.cpp app/worker.cpp
     app/resource.rc)
-target_link_libraries(DeepImage PRIVATE d2d1 d3d11 dxgi dwrite windowscodecs d3dcompiler_47 dwmapi shlwapi shell32 ole32
+target_link_libraries(DeepImage PRIVATE miniz d2d1 d3d11 dxgi dwrite windowscodecs d3dcompiler_47 dwmapi shlwapi shell32 ole32
     oleaut32 uuid propsys comdlg32 uxtheme ${STATIC_RT} ${GC_SECTIONS} -municode)
 
 # ------------------------------------------------------------------ Explorer thumbnail bridge

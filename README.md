@@ -10,9 +10,9 @@ Made by **DMIND** · dmind114@gmail.com
 
 | 파일 | 대상 |
 |---|---|
-| `DeepImage-Viewer-1.0.0-Setup-x64.exe` | 일반 Windows PC (Intel / AMD) |
-| `DeepImage-Viewer-1.0.0-Setup-arm64.exe` | ARM 기반 Windows PC (Snapdragon 등) |
-| `DeepImage-Viewer-1.0.0-Portable-*.zip` | 설치 없이 실행 (탐색기 썸네일 제외) |
+| `DeepImage-Viewer-1.0.1-Setup-x64.exe` | 일반 Windows PC (Intel / AMD) |
+| `DeepImage-Viewer-1.0.1-Setup-arm64.exe` | ARM 기반 Windows PC (Snapdragon 등) |
+| `DeepImage-Viewer-1.0.1-Portable-*.zip` | 설치 없이 실행 (탐색기 썸네일 제외) |
 
 설치는 현재 사용자 계정에만 진행되어 관리자 권한이 필요 없습니다. Windows 10 / 11.
 

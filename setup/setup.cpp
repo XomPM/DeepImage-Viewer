@@ -109,6 +109,60 @@ void restoreOwned(const std::wstring& key, const std::wstring& ours) {
     else { regDelValue(HKEY_CURRENT_USER, key, nullptr); regPrune(key); }
 }
 
+bool keyExists(HKEY root, const std::wstring& key) {
+    HKEY k;
+    if (RegOpenKeyExW(root, key.c_str(), 0, KEY_READ, &k) != ERROR_SUCCESS) return false;
+    RegCloseKey(k);
+    return true;
+}
+std::vector<std::wstring> valueNames(HKEY root, const std::wstring& key) {
+    std::vector<std::wstring> out;
+    HKEY k;
+    if (RegOpenKeyExW(root, key.c_str(), 0, KEY_READ, &k) != ERROR_SUCCESS) return out;
+    wchar_t name[512];
+    for (DWORD i = 0;; ++i) {
+        DWORD n = (DWORD)std::size(name);
+        if (RegEnumValueW(k, i, name, &n, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS) break;
+        if (n) out.emplace_back(name, n);
+    }
+    RegCloseKey(k);
+    return out;
+}
+std::vector<std::wstring> splitLines(const std::wstring& s) {
+    std::vector<std::wstring> out;
+    size_t a = 0;
+    while (a <= s.size()) {
+        size_t b = s.find(L'\n', a);
+        if (b == std::wstring::npos) b = s.size();
+        if (b > a) out.push_back(s.substr(a, b - a));
+        a = b + 1;
+    }
+    return out;
+}
+
+// Explorer looks for a thumbnail handler on the file's ProgID before the extension key. Another app's ProgID
+// with a broken handler (e.g. a 32-bit-only one) or a format-specific handler on a ProgID shared by several
+// extensions would hide ours, so we bind our handler on every ProgID Explorer may consult for this extension.
+std::vector<std::wstring> thumbnailProgIds(const wchar_t* ext) {
+    std::vector<std::wstring> out;
+    auto add = [&](const std::wstring& prog, bool always) {
+        if (prog.empty() || prog.rfind(L"DeepImageViewer.", 0) == 0 || prog.find(L'\\') != std::wstring::npos) return;
+        if (!keyExists(HKEY_CLASSES_ROOT, prog)) return;
+        for (auto& p : out) if (_wcsicmp(p.c_str(), prog.c_str()) == 0) return;
+        // an empty slot is left alone so Explorer falls through to the extension key
+        if (!always && !keyExists(HKEY_CLASSES_ROOT, prog + L"\\ShellEx\\" + kThumbCat)) return;
+        out.push_back(prog);
+    };
+    const std::wstring fe = std::wstring(L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\") + ext;
+    add(regGet(HKEY_CURRENT_USER, fe + L"\\UserChoice", L"ProgId"), true);
+    add(regGet(HKEY_CLASSES_ROOT, ext, nullptr), false);
+    add(regGet(HKEY_LOCAL_MACHINE, std::wstring(L"Software\\Classes\\") + ext, nullptr), false);
+    add(regGet(HKEY_CURRENT_USER, std::wstring(L"Software\\Classes\\") + ext, nullptr), false);
+    for (auto& n : valueNames(HKEY_CLASSES_ROOT, std::wstring(ext) + L"\\OpenWithProgids")) add(n, false);
+    for (auto& n : valueNames(HKEY_CURRENT_USER, fe + L"\\OpenWithProgids")) add(n, false);
+    return out;
+}
+
 // ---------------------------------------------------------------- paths
 std::wstring knownFolder(REFKNOWNFOLDERID id) {
     PWSTR p = nullptr;
@@ -241,15 +295,29 @@ void registerApp(const std::wstring& dir, const Options& o) {
                 if (!ext) continue;
                 setOwned(C + ext + L"\\ShellEx\\" + kThumbCat, id);
                 setOwned(C + L"SystemFileAssociations\\" + ext + L"\\ShellEx\\" + kThumbCat, id);
-                // the user's chosen app ProgID may carry its own handler slot; bind ours there too
-                std::wstring prog = regGet(HKEY_CURRENT_USER, std::wstring(L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\") + ext + L"\\UserChoice", L"ProgId");
-                if (!prog.empty() && prog.rfind(L"DeepImageViewer.", 0) != 0 && prog.find(L'\\') == std::wstring::npos) {
+                // ProgIDs Explorer checks first (user choice, other apps' types): bind ours there too
+                const std::wstring bkName = L"progids|" + std::wstring(ext);
+                std::wstring list = regGet(H, kBackupKey, bkName.c_str());
+                auto known = splitLines(list);
+                for (auto& prog : thumbnailProgIds(ext)) {
                     setOwned(C + prog + L"\\ShellEx\\" + kThumbCat, id);
-                    regSet(H, kBackupKey, (L"progid|" + std::wstring(ext)).c_str(), prog);
+                    bool seen = false;
+                    for (auto& k : known) if (_wcsicmp(k.c_str(), prog.c_str()) == 0) seen = true;
+                    if (!seen) { known.push_back(prog); list += (list.empty() ? L"" : L"\n") + prog; }
                 }
+                if (!list.empty()) regSet(H, kBackupKey, bkName.c_str(), list);
             }
         }
         regSetDword(H, L"Software\\DMIND\\DeepImageViewer", L"ThumbnailsRegistered", 1);
+        // record which handler Explorer actually resolves per extension (support diagnostics)
+        for (auto& f : thumbnail::kShellFormats)
+            for (const wchar_t* ext : {f.extension, f.extra}) {
+                if (!ext) continue;
+                wchar_t res[128] = {};
+                DWORD n = (DWORD)std::size(res);
+                if (FAILED(AssocQueryStringW(ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR_SHELLEXTENSION, ext, kThumbCat, res, &n))) wcscpy_s(res, L"-");
+                regSet(H, L"Software\\DMIND\\DeepImageViewer\\ThumbnailCheck", ext, res);
+            }
     }
     // Uninstall entry
     const std::wstring un = dir + L"\\Uninstall.exe";
@@ -276,8 +344,10 @@ void unregisterApp() {
             if (!ext) continue;
             restoreOwned(C + ext + L"\\ShellEx\\" + kThumbCat, id);
             restoreOwned(C + L"SystemFileAssociations\\" + ext + L"\\ShellEx\\" + kThumbCat, id);
-            std::wstring prog = regGet(H, kBackupKey, (L"progid|" + std::wstring(ext)).c_str());
+            std::wstring prog = regGet(H, kBackupKey, (L"progid|" + std::wstring(ext)).c_str()); // 1.0.0 installs
             if (!prog.empty()) restoreOwned(C + prog + L"\\ShellEx\\" + kThumbCat, id);
+            for (auto& p : splitLines(regGet(H, kBackupKey, (L"progids|" + std::wstring(ext)).c_str())))
+                restoreOwned(C + p + L"\\ShellEx\\" + kThumbCat, id);
         }
         regDelTree(H, C + L"CLSID\\" + id);
     }

@@ -1060,7 +1060,7 @@ void App::drawModal() {
     auto& bg = U.add(hid("modal.bg"), R(0, 0, G.W(), G.H()));
     if (modal.kind == 1 || modal.kind == 2) bg.click = [this] { closeModal(); requestPaint(); };
     float W = modal.kind == 4 ? 420.f : 470.f;
-    float H = modal.kind == 1 ? 470.f : modal.kind == 2 ? 470.f : modal.kind == 3 ? 300.f : 200.f;
+    float H = modal.kind == 1 ? 512.f : modal.kind == 2 ? 470.f : modal.kind == 3 ? 300.f : 200.f;
     if (modal.kind == 4) {
         auto l = G.layout(modal.message, 13, 400, W - 40, 400, AL, true);
         DWRITE_TEXT_METRICS m{};
@@ -1104,6 +1104,23 @@ void App::drawModal() {
         rowSeg("set.imagebg", {T("set.imagebg.plain"), T("set.imagebg.checker")}, {}, S.imageBg, [this](int i) { S.imageBg = i; S.save(); requestPaint(); }, 5);
         rowSwitch("set.filmstrip", S.filmstrip, [this] { S.filmstrip = !S.filmstrip; S.save(); requestPaint(); }, 6);
         rowSwitch("set.grid", S.grid, [this] { S.grid = !S.grid; mv.grid = S.grid; mv.invalidate(); S.save(); requestPaint(); }, 7);
+        {
+            // thumbnail cache: size + clear
+            G.text(T("set.thumbcache"), RW(x, y, w, 40), 13, P.text, 500);
+            std::wstring cl = T("set.thumbcache.clear");
+            float cw = G.textWidth(cl, 12.5f, 600) + 28;
+            U.textButton(hid("set.cache"), RW(x + w - cw, y + 5, cw, 30), cl, [this] {
+                clearThumbCache();
+                thumbBmp.clear();
+                thumbFailed.clear();
+                cacheBytes = 0;
+                requestThumbs();
+                toast(T("set.thumbcache.cleared"));
+            });
+            G.text(fmtBytes(cacheBytes), RW(x, y, w - cw - 12, 40), 12.5f, P.text3, 500, AR);
+            y += 42;
+            G.line(x, y - .5f, x + w, y - .5f, P.line);
+        }
         float bw = G.textWidth(T("set.defaults"), 13, 600) + 52;
         U.textButton(hid("set.defaults"), RW(x, c.bottom - 54, bw, 34), T("set.defaults"), [] {
             ShellExecuteW(nullptr, L"open", L"ms-settings:defaultapps?registeredAppUser=DeepImage%20Viewer", nullptr, nullptr, SW_SHOWNORMAL);

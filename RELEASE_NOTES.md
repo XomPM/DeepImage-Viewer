@@ -1,20 +1,16 @@
-## DeepImage Viewer 1.0.0
+## DeepImage Viewer 1.0.1
 
-첫 정식 버전입니다.
+### 썸네일
+- **3MF 내장 썸네일 우선 표시:** 제작자가 넣어 둔 썸네일, Bambu Studio · Orca Slicer · Creality Print · PrusaSlicer가 만든 플레이트 이미지가 있으면 그 이미지를 먼저 보여 줍니다. 없을 때만 DeepImage Viewer가 직접 렌더링합니다.
+- **썸네일 디스크 캐시:** 한 번 만든 썸네일을 저장해 두어, 폴더를 옮기거나 프로그램을 다시 켜도 바로 보입니다. 파일이 바뀌면 자동으로 새로 만듭니다. (설정 → 썸네일 캐시 → 비우기)
+- **탐색기 STL 썸네일 수정:** Creality Print, Bambu Studio 등이 등록한 파일 형식 때문에 STL 썸네일이 안 보이던 문제를 고쳤습니다.
+
+### 기타
+- 새 DMIND 로고 아이콘
 
 ### 설치 파일
-- **DeepImage-Viewer-1.0.0-Setup-x64.exe**: 일반 Windows PC (Intel / AMD)
-- **DeepImage-Viewer-1.0.0-Setup-arm64.exe**: ARM 기반 Windows PC (Snapdragon 등)
+- **DeepImage-Viewer-1.0.1-Setup-x64.exe**: 일반 Windows PC (Intel / AMD)
+- **DeepImage-Viewer-1.0.1-Setup-arm64.exe**: ARM 기반 Windows PC (Snapdragon 등)
 - **Portable zip**: 설치 없이 실행 (탐색기 썸네일 미포함)
 
-### 주요 기능
-- 이미지 + 3D 파일(STL, 3MF, OBJ, PLY, glTF, FBX, STEP, IGES 등) 보기
-- 맞춤 방식 5종(선택 기억), 두 이미지 비교 모드
-- 펜·형광펜·도형·모자이크·마스크 표시, 선택·이동, 색상·굵기
-- 자르기, 크기 조절, 색 보정, 다른 형식으로 저장
-- EXIF 정보, 히스토그램, 탐색기 썸네일
-- OS 테마 연동, 한국어 / English
-- 3D 보기의 3D프린팅 버튼 (3DMIND 제작 요청서)
-
-### 참고
-- 코드 서명이 없어 처음 실행 시 Windows SmartScreen 경고가 나올 수 있습니다. "추가 정보 → 실행"을 누르세요.
+설치되어 있던 1.0.0 위에 그대로 설치하면 됩니다. 탐색기에 예전 썸네일이 남아 있으면 디스크 정리 → "미리 보기 사진"을 비우세요.

@@ -3,8 +3,8 @@
 1 24 "../res/app.manifest"
 10 RCDATA "../res/mark256.png"
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 1,0,0,0
-PRODUCTVERSION 1,0,0,0
+FILEVERSION 1,0,1,0
+PRODUCTVERSION 1,0,1,0
 FILEOS VOS_NT_WINDOWS32
 FILETYPE VFT_APP
 BEGIN
@@ -14,12 +14,12 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "DMIND"
       VALUE "FileDescription", "DeepImage Viewer"
-      VALUE "FileVersion", "1.0.0"
+      VALUE "FileVersion", "1.0.1"
       VALUE "InternalName", "DeepImage"
       VALUE "LegalCopyright", "Copyright (c) DMIND <dmind114@gmail.com>"
       VALUE "OriginalFilename", "DeepImage.exe"
       VALUE "ProductName", "DeepImage Viewer"
-      VALUE "ProductVersion", "1.0.0"
+      VALUE "ProductVersion", "1.0.1"
     END
   END
   BLOCK "VarFileInfo"

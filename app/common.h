@@ -39,7 +39,7 @@ using Microsoft::WRL::ComPtr;
 namespace dv {
 
 constexpr const wchar_t* kAppName = L"DeepImage Viewer";
-constexpr const wchar_t* kVersion = L"1.0.0";
+constexpr const wchar_t* kVersion = L"1.0.1";
 constexpr const wchar_t* kRegKey = L"Software\\DMIND\\DeepImageViewer";
 
 inline float clampf(float v, float a, float b) { return v < a ? a : (v > b ? b : v); }

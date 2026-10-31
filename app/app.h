@@ -209,7 +209,8 @@ public:
     void afterPixelEdit();
     void confirm(const std::wstring& title, const std::wstring& msg, std::vector<ModalButton> buttons);
     void guardUnsaved(Action proceed);
-    void openSettings() { modal = Modal{}; modal.kind = 1; }
+    uint64_t cacheBytes = 0;
+    void openSettings() { modal = Modal{}; modal.kind = 1; cacheBytes = thumbCacheBytes(); }
     void openAbout() { modal = Modal{}; modal.kind = 2; }
     void closeModal() { modal = Modal{}; }
     void updateTitle();

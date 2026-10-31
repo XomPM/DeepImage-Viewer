@@ -6,7 +6,7 @@
 #include <windows.h>
 #include <d3d11.h>
 #include <d3dcompiler.h>
-#include <msopc.h>
+#include "miniz.h"
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <algorithm>
@@ -245,52 +245,162 @@ void renderThumbnail(const MeshModel& model, uint32_t size, uint32_t background,
 }
 
 // ---------------------------------------------------------------- 3MF package preview (from DMIND 3D Thumbnail)
-bool read3mfPreview(const std::wstring& path, uint32_t size, uint8_t* bgra) {
-    static const wchar_t* kThumb = L"http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail";
-    ComPtr<IOpcFactory> factory;
-    if (FAILED(CoCreateInstance(__uuidof(OpcFactory), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)))) return false;
-    ComPtr<IStream> file;
-    if (FAILED(factory->CreateStreamOnFile(path.c_str(), OPC_STREAM_IO_READ, nullptr, 0, &file))) return false;
-    ComPtr<IOpcPackage> package;
-    if (FAILED(factory->ReadPackageFromStream(file.Get(), OPC_CACHE_ON_ACCESS, &package))) return false;
-    ComPtr<IOpcRelationshipSet> rels;
-    ComPtr<IOpcRelationshipEnumerator> en;
-    BOOL found = FALSE;
-    if (FAILED(package->GetRelationshipSet(&rels)) || FAILED(rels->GetEnumeratorForType(kThumb, &en)) ||
-        FAILED(en->MoveNext(&found)) || !found) return false;
-    ComPtr<IOpcRelationship> rel;
-    ComPtr<IUri> target;
-    ComPtr<IOpcUri> source;
-    ComPtr<IOpcPartUri> name;
-    OPC_URI_TARGET_MODE mode{};
-    if (FAILED(en->GetCurrent(&rel)) || FAILED(rel->GetTargetMode(&mode)) || mode != OPC_URI_TARGET_MODE_INTERNAL ||
-        FAILED(rel->GetTargetUri(&target)) || FAILED(rel->GetSourceUri(&source)) ||
-        FAILED(source->CombinePartUri(target.Get(), &name))) return false;
-    ComPtr<IOpcPartSet> parts;
-    ComPtr<IOpcPart> part;
-    ComPtr<IStream> content;
-    if (FAILED(package->GetPartSet(&parts)) || FAILED(parts->GetPart(name.Get(), &part)) || FAILED(part->GetContentStream(&content))) return false;
+// ---------------------------------------------------------------------------------------------------------------
+// Embedded package thumbnails. Slicers and authoring tools store a picture inside the 3MF zip:
+//   * 3MF / OPC standard: _rels/.rels relationship ".../metadata/thumbnail" (PrusaSlicer, Cura, 3D Builder, ...)
+//   * Bambu Studio / Orca Slicer / Creality Print: Metadata/plate_1.png (+ "cover-thumbnail-*" relationships)
+//   * Other common locations: Metadata/thumbnail.png, Thumbnails/thumbnail.png, Metadata/top_1.png
+// The zip is read with miniz straight from the file (no full load, tolerant of packages the strict OPC API rejects).
+namespace {
+struct ZipFile {
+    HANDLE h = INVALID_HANDLE_VALUE;
+    mz_zip_archive z{};
+    bool open(const std::wstring& path) {
+        h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return false;
+        LARGE_INTEGER sz{};
+        if (!GetFileSizeEx(h, &sz) || sz.QuadPart < 22) return false;
+        char sig[2] = {};
+        DWORD got = 0;
+        if (!ReadFile(h, sig, 2, &got, nullptr) || got != 2 || sig[0] != 'P' || sig[1] != 'K') return false;
+        z.m_pRead = [](void* op, mz_uint64 ofs, void* buf, size_t n) -> size_t {
+            HANDLE fh = (HANDLE)op;
+            OVERLAPPED o{};
+            o.Offset = (DWORD)ofs;
+            o.OffsetHigh = (DWORD)(ofs >> 32);
+            DWORD r = 0;
+            return ReadFile(fh, buf, (DWORD)n, &r, &o) ? r : 0;
+        };
+        z.m_pIO_opaque = h;
+        return mz_zip_reader_init(&z, (mz_uint64)sz.QuadPart, 0) != 0;
+    }
+    ~ZipFile() {
+        if (z.m_zip_mode != MZ_ZIP_MODE_INVALID) mz_zip_reader_end(&z);
+        if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+    }
+    int find(std::string name) const {
+        while (!name.empty() && name[0] == '/') name.erase(0, 1);
+        return mz_zip_reader_locate_file(const_cast<mz_zip_archive*>(&z), name.c_str(), nullptr, 0);
+    }
+    bool read(int idx, std::vector<uint8_t>& out, size_t limit = 64u << 20) {
+        mz_zip_archive_file_stat st{};
+        if (idx < 0 || !mz_zip_reader_file_stat(&z, (mz_uint)idx, &st) || st.m_uncomp_size == 0 || st.m_uncomp_size > limit) return false;
+        out.resize((size_t)st.m_uncomp_size);
+        return mz_zip_reader_extract_to_mem(&z, (mz_uint)idx, out.data(), out.size(), 0) != 0;
+    }
+};
+
+// attribute value inside one XML element (minimal; .rels files are tiny and machine written)
+std::string attr(const std::string& el, const char* name) {
+    std::string key = std::string(name) + "=";
+    for (size_t p = el.find(key); p != std::string::npos; p = el.find(key, p + 1)) {
+        if (p > 0 && !isspace((unsigned char)el[p - 1])) continue;
+        size_t q = p + key.size();
+        if (q >= el.size() || (el[q] != '"' && el[q] != '\'')) continue;
+        size_t e = el.find(el[q], q + 1);
+        if (e == std::string::npos) return {};
+        return el.substr(q + 1, e - q - 1);
+    }
+    return {};
+}
+
+bool endsWith(const std::string& s, const char* suf) {
+    size_t n = strlen(suf);
+    return s.size() >= n && _strnicmp(s.c_str() + s.size() - n, suf, n) == 0;
+}
+
+// candidate part names, best first
+std::vector<std::string> previewCandidates(ZipFile& zf) {
+    std::vector<std::string> std_, cover, out;
+    std::vector<uint8_t> rels;
+    if (zf.read(zf.find("_rels/.rels"), rels, 1u << 20)) {
+        std::string x(rels.begin(), rels.end());
+        for (size_t p = x.find("<Relationship"); p != std::string::npos; p = x.find("<Relationship", p + 1)) {
+            size_t e = x.find('>', p);
+            if (e == std::string::npos) break;
+            std::string el = x.substr(p, e - p);
+            std::string type = attr(el, "Type"), target = attr(el, "Target");
+            if (target.empty() || attr(el, "TargetMode") == "External") continue;
+            if (endsWith(type, "/metadata/thumbnail")) std_.push_back(target);
+            else if (endsWith(type, "cover-thumbnail-middle")) cover.insert(cover.begin(), target);
+            else if (endsWith(type, "cover-thumbnail-small")) cover.push_back(target);
+        }
+    }
+    // slicer project files: the plate render is the most faithful picture of what was prepared
+    for (auto& c : cover) out.push_back(c);
+    for (const char* n : {"Metadata/plate_1.png", "Metadata/plate_1.jpg"}) out.push_back(n);
+    for (auto& c : std_) out.push_back(c);
+    for (const char* n : {"Metadata/thumbnail.png", "Metadata/thumbnail.jpg", "Thumbnails/thumbnail.png", "Thumbnails/thumbnail.jpg",
+                          "Metadata/top_1.png", "Metadata/plate_1_small.png"})
+        out.push_back(n);
+    // any other plate picture (plate_2.png, ...) when plate 1 is missing
+    const mz_uint n = mz_zip_reader_get_num_files(&zf.z);
+    for (mz_uint i = 0; i < n && i < 4096; ++i) {
+        char name[512];
+        if (!mz_zip_reader_get_filename(&zf.z, i, name, sizeof name)) continue;
+        std::string s(name);
+        if (_strnicmp(s.c_str(), "Metadata/plate_", 15) == 0 && endsWith(s, ".png") && s.find("_small") == std::string::npos) out.push_back(s);
+    }
+    return out;
+}
+
+bool decodeToSquare(const std::vector<uint8_t>& bytes, uint32_t size, uint8_t* bgra) {
     ComPtr<IWICImagingFactory> wic;
     if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic)))) return false;
+    ComPtr<IWICStream> st;
     ComPtr<IWICBitmapDecoder> dec;
     ComPtr<IWICBitmapFrameDecode> frame;
-    if (FAILED(wic->CreateDecoderFromStream(content.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &dec)) || FAILED(dec->GetFrame(0, &frame))) return false;
+    if (FAILED(wic->CreateStream(&st)) || FAILED(st->InitializeFromMemory(const_cast<BYTE*>(bytes.data()), (DWORD)bytes.size())) ||
+        FAILED(wic->CreateDecoderFromStream(st.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &dec)) || FAILED(dec->GetFrame(0, &frame)))
+        return false;
     UINT w = 0, h = 0;
     frame->GetSize(&w, &h);
-    if (!w || !h || w > 8192 || h > 8192) return false;
-    const UINT longest = std::max(w, h);
-    const UINT sw = std::max(1u, w * size / longest), sh = std::max(1u, h * size / longest);
+    if (w < 16 || h < 16 || w > 8192 || h > 8192) return false;
     ComPtr<IWICFormatConverter> conv;
-    ComPtr<IWICBitmapScaler> scaler;
     if (FAILED(wic->CreateFormatConverter(&conv)) ||
-        FAILED(conv->Initialize(frame.Get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom)) ||
-        FAILED(wic->CreateBitmapScaler(&scaler)) || FAILED(scaler->Initialize(conv.Get(), sw, sh, WICBitmapInterpolationModeFant))) return false;
+        FAILED(conv->Initialize(frame.Get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom)))
+        return false;
+    // reject empty pictures (fully transparent or a single flat colour) so we fall back to rendering
+    {
+        std::vector<uint8_t> probe((size_t)w * h * 4);
+        if (FAILED(conv->CopyPixels(nullptr, w * 4, (UINT)probe.size(), probe.data()))) return false;
+        uint32_t first = 0;
+        memcpy(&first, probe.data(), 4);
+        bool flat = true, anyAlpha = false;
+        for (size_t i = 0; i < probe.size(); i += 4 * 7) {
+            uint32_t v;
+            memcpy(&v, probe.data() + i, 4);
+            if (probe[i + 3] > 8) anyAlpha = true;
+            if (v != first) flat = false;
+        }
+        if (!anyAlpha || flat) return false;
+    }
+    // fit into the square tile, keeping the aspect ratio
+    const UINT longest = std::max(w, h);
+    const UINT sw = std::max(1u, (UINT)((uint64_t)w * size / longest)), sh = std::max(1u, (UINT)((uint64_t)h * size / longest));
+    ComPtr<IWICBitmapScaler> scaler;
+    if (FAILED(wic->CreateBitmapScaler(&scaler)) || FAILED(scaler->Initialize(conv.Get(), sw, sh, (WICBitmapInterpolationMode)4 /*HighQualityCubic*/)))
+        return false;
     std::vector<uint8_t> px((size_t)sw * sh * 4);
     if (FAILED(scaler->CopyPixels(nullptr, sw * 4, (UINT)px.size(), px.data()))) return false;
     memset(bgra, 0, (size_t)size * size * 4);
     for (UINT y = 0; y < sh; ++y)
-        memcpy(bgra + ((y + (size - sh) / 2) * size + (size - sw) / 2) * 4, px.data() + (size_t)y * sw * 4, (size_t)sw * 4);
+        memcpy(bgra + ((size_t)(y + (size - sh) / 2) * size + (size - sw) / 2) * 4, px.data() + (size_t)y * sw * 4, (size_t)sw * 4);
     return true;
+}
+} // namespace
+
+bool read3mfPreview(const std::wstring& path, uint32_t size, uint8_t* bgra) {
+    ZipFile zf;
+    if (!zf.open(path)) return false;
+    std::vector<std::string> tried;
+    for (auto& name : previewCandidates(zf)) {
+        if (std::find(tried.begin(), tried.end(), name) != tried.end()) continue;
+        tried.push_back(name);
+        std::vector<uint8_t> bytes;
+        if (zf.read(zf.find(name), bytes, 32u << 20) && decodeToSquare(bytes, size, bgra)) return true;
+    }
+    return false;
 }
 
 } // namespace dv

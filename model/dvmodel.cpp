@@ -72,7 +72,7 @@ DV_API void dvFreeModel(DvModel* m) { delete m; }
 DV_API int dvRenderThumbnail(const wchar_t* path, const DvThumbOptions* o, uint8_t* bgra, char* error, int errorLength) {
     if (!path || !o || !bgra || o->size < 16 || o->size > 2048) { setError(error, errorLength, "Invalid arguments"); return 0; }
     try {
-        if (o->preferEmbeddedPreview && dv::lowerExt(path) == L"3mf" && dv::read3mfPreview(path, o->size, bgra)) return 1;
+        if (o->preferEmbeddedPreview && dv::lowerExt(path) == L"3mf" && dv::read3mfPreview(path, o->size, bgra)) return 1; // slicer / author picture first
         dv::MeshModel m;
         dv::loadModelFile(path, m, false);
         dv::renderThumbnail(m, o->size, o->background, bgra);

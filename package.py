@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # DeepImage Viewer — build the release installers (x64, ARM64) and portable zips
 import os, struct, sys, zipfile
-VERSION = '1.0.0'
+VERSION = '1.0.1'
 root = os.path.dirname(os.path.abspath(__file__))
 fonts = sys.argv[1] if len(sys.argv) > 1 else os.path.join(root, 'fonts')
 dist = os.path.join(root, 'dist')

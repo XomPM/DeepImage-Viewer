@@ -24,7 +24,12 @@ private:
 };
 extern ModelLib ML;
 
-struct ThumbResult { std::wstring path; UINT w = 0, h = 0; std::vector<uint8_t> bgra; bool ok = false; };
+struct ThumbResult { std::wstring path; UINT w = 0, h = 0; std::vector<uint8_t> bgra; bool ok = false; bool fromShell = false; };
+
+// Persistent thumbnail cache (%LOCALAPPDATA%\DMIND\DeepImage Viewer\ThumbCache). Entries are keyed by
+// path + size + modification time, so an edited file gets a fresh thumbnail automatically.
+uint64_t thumbCacheBytes();
+void clearThumbCache();
 
 class ThumbService {
 public:
