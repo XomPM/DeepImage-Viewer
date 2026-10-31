@@ -75,7 +75,7 @@ DV_API int dvRenderThumbnail(const wchar_t* path, const DvThumbOptions* o, uint8
         if (o->preferEmbeddedPreview && dv::lowerExt(path) == L"3mf" && dv::read3mfPreview(path, o->size, bgra)) return 1; // slicer / author picture first
         dv::MeshModel m;
         dv::loadModelFile(path, m, false);
-        dv::renderThumbnail(m, o->size, o->background, bgra);
+        dv::renderThumbnail(m, o->size, o->background, bgra, o->modelColor, o->colorAllModels != 0);
         return 1;
     } catch (const std::bad_alloc&) {
         setError(error, errorLength, "Out of memory");

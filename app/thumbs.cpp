@@ -2,6 +2,7 @@
 // Copyright (c) DMIND <dmind114@gmail.com>. MIT License.
 #include "thumbs.h"
 #include "image.h"
+#include "settings.h"
 #include "miniz.h"
 #include <shlobj.h>
 #include <shobjidl.h>
@@ -56,7 +57,7 @@ bool renderThumbFile(const std::wstring& path, Kind kind, UINT size, ThumbResult
     if (kind == Kind::Model) {
         if (!ML.ensure()) return false;
         std::lock_guard<std::mutex> g(ML.lock);
-        DvThumbOptions o{size, 0, 1};
+        DvThumbOptions o{size, 0, 1, S.thumbColor ? (0xFF000000u | (S.thumbColor & 0xFFFFFF)) : 0u, S.thumbColorAll ? 1 : 0};
         out.bgra.resize((size_t)size * size * 4);
         char err[256] = {};
         if (!ML.thumb(path.c_str(), &o, out.bgra.data(), err, sizeof err)) return false;
@@ -112,7 +113,7 @@ std::wstring cacheDir() {
 }
 
 // empty when the file cannot be stat'ed (then we do not cache)
-std::wstring cacheFile(const std::wstring& path) {
+std::wstring cacheFile(const std::wstring& path, Kind kind) {
     WIN32_FILE_ATTRIBUTE_DATA fa;
     if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &fa) || cacheDir().empty()) return {};
     uint64_t h = 1469598103934665603ull;
@@ -123,6 +124,7 @@ std::wstring cacheFile(const std::wstring& path) {
     mix(&fa.nFileSizeHigh, 4); mix(&fa.nFileSizeLow, 4); mix(&fa.ftLastWriteTime, 8);
     const uint32_t v = 2 * 1000 + kThumbSize; // bump when the renderer or embedded-preview rules change
     mix(&v, 4);
+    if (kind == Kind::Model) { mix(&S.thumbColor, 4); uint32_t all = S.thumbColorAll; mix(&all, 4); }
     wchar_t name[40];
     swprintf(name, 40, L"\\%016llx.dvt", (unsigned long long)h);
     return cacheDir() + name;
@@ -271,7 +273,7 @@ void ThumbService::run() {
         }
         ThumbResult r;
         // 1) our disk cache  2) Windows' cache for ordinary photos  3) embedded preview / our own render
-        const std::wstring cf = cacheFile(job.path);
+        const std::wstring cf = cacheFile(job.path, job.kind);
         if (!cf.empty() && cacheLoad(cf, r)) r.ok = true;
         else {
             r = ThumbResult{};

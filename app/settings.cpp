@@ -27,6 +27,8 @@ void Settings::load() {
     infoPanel = getDword(k, L"InfoPanel", 0) != 0;
     grid = getDword(k, L"Grid", 1) != 0;
     fitMode = (int)getDword(k, L"FitMode", 0) % 5;
+    thumbColor = getDword(k, L"ThumbColor", 0);
+    thumbColorAll = getDword(k, L"ThumbColorAll", 0) != 0;
     DWORD sz = sizeof placement, type = 0;
     if (RegQueryValueExW(k, L"Placement", nullptr, &type, (BYTE*)&placement, &sz) == ERROR_SUCCESS && type == REG_BINARY &&
         sz == sizeof placement && placement.length == sizeof placement)
@@ -49,6 +51,8 @@ void Settings::save() const {
     setDword(k, L"InfoPanel", infoPanel);
     setDword(k, L"Grid", grid);
     setDword(k, L"FitMode", fitMode);
+    setDword(k, L"ThumbColor", thumbColor);
+    setDword(k, L"ThumbColorAll", thumbColorAll);
     if (hasPlacement) RegSetValueExW(k, L"Placement", 0, REG_BINARY, (const BYTE*)&placement, sizeof placement);
     RegSetValueExW(k, L"LastDir", 0, REG_SZ, (const BYTE*)lastDir.c_str(), (DWORD)((lastDir.size() + 1) * 2));
     RegCloseKey(k);

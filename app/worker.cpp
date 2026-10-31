@@ -3,6 +3,7 @@
 // Copyright (c) DMIND <dmind114@gmail.com>. MIT License.
 #include "common.h"
 #include "thumbs.h"
+#include "settings.h"
 
 namespace dv {
 
@@ -35,6 +36,7 @@ int runWorker(int argc, wchar_t** argv) {
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
     if (argc < 5) return 2;
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    S.load(); // Explorer thumbnails follow the colour chosen in the viewer settings
     const std::wstring in = argv[2], out = argv[3];
     UINT size = (UINT)std::wcstoul(argv[4], nullptr, 10);
     size = std::clamp(size, 32u, 1024u);

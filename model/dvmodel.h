@@ -42,6 +42,8 @@ struct DvThumbOptions {
     uint32_t size;            // output edge in pixels (32..1024)
     uint32_t background;      // 0xAARRGGBB, alpha 0 = transparent
     int preferEmbeddedPreview;// 3MF package thumbnail first
+    uint32_t modelColor;      // 0xFFRRGGBB custom colour for models without their own colour; 0 = built-in grey
+    int colorAllModels;       // 1 = use modelColor for every model, even coloured / textured ones
 };
 
 typedef struct DvModel DvModel;

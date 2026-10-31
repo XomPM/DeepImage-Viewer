@@ -62,7 +62,7 @@ M4 mul(const M4& a, const M4& b) {
 
 } // namespace
 
-void renderThumbnail(const MeshModel& model, uint32_t size, uint32_t background, uint8_t* bgra) {
+void renderThumbnail(const MeshModel& model, uint32_t size, uint32_t background, uint8_t* bgra, uint32_t modelColor, bool colorAll) {
     const uint32_t ss = 2, W = size * ss;
     // ---- build vertices in a Y-up world
     std::vector<V> verts;
@@ -71,8 +71,14 @@ void renderThumbnail(const MeshModel& model, uint32_t size, uint32_t background,
         if (model.upAxis == 2) { o[0] = p[0]; o[1] = p[2]; o[2] = -p[1]; }
         else { o[0] = p[0]; o[1] = p[1]; o[2] = p[2]; }
     };
+    // user colour (settings): replaces the built-in grey of uncoloured parts, or every colour when colorAll
+    const bool custom = (modelColor >> 24) != 0;
+    const float cc[3] = {((modelColor >> 16) & 255) / 255.f, ((modelColor >> 8) & 255) / 255.f, (modelColor & 255) / 255.f};
     for (const auto& s : model.submeshes) {
         const uint32_t base = (uint32_t)verts.size();
+        const bool plain = s.colors.empty() && s.texture.empty() && std::fabs(s.baseColor[0] - 0.72f) < 0.005f &&
+                           std::fabs(s.baseColor[1] - 0.74f) < 0.005f && std::fabs(s.baseColor[2] - 0.78f) < 0.005f;
+        const bool recolor = custom && (colorAll || plain);
         const size_t n = s.positions.size() / 3;
         for (size_t i = 0; i < n; ++i) {
             V v{};
@@ -83,6 +89,7 @@ void renderThumbnail(const MeshModel& model, uint32_t size, uint32_t background,
                 // No texture sampling in thumbnails: use a neutral tint instead of pure white.
                 if (v.c[0] > 0.97f && v.c[1] > 0.97f && v.c[2] > 0.97f) { v.c[0] = 0.78f; v.c[1] = 0.76f; v.c[2] = 0.72f; }
             }
+            if (recolor) for (int k = 0; k < 3; ++k) v.c[k] = cc[k];
             v.c[3] = 1;
             verts.push_back(v);
         }

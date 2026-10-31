@@ -1060,7 +1060,7 @@ void App::drawModal() {
     auto& bg = U.add(hid("modal.bg"), R(0, 0, G.W(), G.H()));
     if (modal.kind == 1 || modal.kind == 2) bg.click = [this] { closeModal(); requestPaint(); };
     float W = modal.kind == 4 ? 420.f : 470.f;
-    float H = modal.kind == 1 ? 512.f : modal.kind == 2 ? 470.f : modal.kind == 3 ? 300.f : 200.f;
+    float H = modal.kind == 1 ? 650.f : modal.kind == 2 ? 470.f : modal.kind == 3 ? 300.f : 200.f;
     if (modal.kind == 4) {
         auto l = G.layout(modal.message, 13, 400, W - 40, 400, AL, true);
         DWRITE_TEXT_METRICS m{};
@@ -1104,6 +1104,51 @@ void App::drawModal() {
         rowSeg("set.imagebg", {T("set.imagebg.plain"), T("set.imagebg.checker")}, {}, S.imageBg, [this](int i) { S.imageBg = i; S.save(); requestPaint(); }, 5);
         rowSwitch("set.filmstrip", S.filmstrip, [this] { S.filmstrip = !S.filmstrip; S.save(); requestPaint(); }, 6);
         rowSwitch("set.grid", S.grid, [this] { S.grid = !S.grid; mv.grid = S.grid; mv.invalidate(); S.save(); requestPaint(); }, 7);
+        y += 12;
+        group("set.thumbs");
+        {
+            // colour used for 3D thumbnails (models without their own colour, or all models)
+            auto refresh = [this] {
+                S.save();
+                thumbBmp.clear();
+                thumbFailed.clear();
+                requestThumbs();
+                requestPaint();
+            };
+            G.text(T("set.thumbcolor"), RW(x, y, w, 40), 13, P.text, 500);
+            static const uint32_t presets[] = {0, 0xF2F2F2, 0x2B2B2E, 0xE5484D, 0xF28C28, 0xF5C518, 0x3FB950, 0x3B82F6, 0x8B5CF6};
+            const int n = (int)std::size(presets);
+            float sx = x + w - 26 - n * 24;
+            for (int i = 0; i < n; ++i) {
+                uint32_t c = presets[i];
+                bool on = (S.thumbColor & 0xFFFFFF) == c && ((S.thumbColor != 0) == (c != 0));
+                D2D1_COLOR_F col = c ? rgba(c) : rgba(0xB8BDC7);
+                U.swatch(hid("set.tc", i), sx + 12 + i * 24, y + 20, col, on, [this, c, refresh] { S.thumbColor = c ? (0x1000000u | c) : 0u; refresh(); });
+            }
+            D2D1_RECT_F pb = RW(x + w - 24, y + 8, 24, 24);
+            auto& g = U.add(hid("set.tc.custom"), pb);
+            g.tip = "tool.color";
+            g.click = [this, refresh] {
+                static COLORREF custom[16] = {};
+                CHOOSECOLORW cc{sizeof cc};
+                cc.hwndOwner = hwnd;
+                uint32_t cur = S.thumbColor & 0xFFFFFF;
+                cc.rgbResult = RGB((cur >> 16) & 255, (cur >> 8) & 255, cur & 255);
+                cc.lpCustColors = custom;
+                cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+                if (ChooseColorW(&cc)) {
+                    S.thumbColor = 0x1000000u | (GetRValue(cc.rgbResult) << 16) | (GetGValue(cc.rgbResult) << 8) | GetBValue(cc.rgbResult);
+                    refresh();
+                }
+            };
+            bool preset = false;
+            for (uint32_t c : presets) if ((S.thumbColor & 0xFFFFFF) == c && ((S.thumbColor != 0) == (c != 0))) preset = true;
+            if (!preset) { G.circle(cxOf(pb), cyOf(pb), 8, rgba(S.thumbColor & 0xFFFFFF)); G.circle(cxOf(pb), cyOf(pb), 11, P.accent, false, 2); }
+            else { if (U.isHot(g.id)) G.fill(pb, P.hover, 12); G.icon("palette", cxOf(pb), cyOf(pb), 15, P.text2); }
+            y += 42;
+            G.line(x, y - .5f, x + w, y - .5f, P.line);
+            rowSwitch("set.thumbcolor.all", S.thumbColorAll, [this, refresh] { S.thumbColorAll = !S.thumbColorAll; refresh(); }, 8);
+        }
         {
             // thumbnail cache: size + clear
             G.text(T("set.thumbcache"), RW(x, y, w, 40), 13, P.text, 500);

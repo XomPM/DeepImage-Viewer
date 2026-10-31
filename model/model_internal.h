@@ -30,6 +30,6 @@ void loadModelFile(const std::wstring& path, MeshModel& out, bool withTextures);
 
 // thumbnail rendering (WARP)
 bool read3mfPreview(const std::wstring& path, uint32_t size, uint8_t* bgra);
-void renderThumbnail(const MeshModel& model, uint32_t size, uint32_t background, uint8_t* bgra);
+void renderThumbnail(const MeshModel& model, uint32_t size, uint32_t background, uint8_t* bgra, uint32_t modelColor = 0, bool colorAll = false);
 
 } // namespace dv
