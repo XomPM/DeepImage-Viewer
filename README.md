@@ -4,6 +4,9 @@
 
 Made by **DMIND** · dmind114@gmail.com
 
+![3D 보기](docs/screenshots/screenshot1.png)
+![두 이미지 비교](docs/screenshots/screenshot2.png)
+
 ## 다운로드 · Download
 
 [Releases](../../releases/latest) 페이지에서 PC에 맞는 파일을 받으세요.
