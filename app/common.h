@@ -73,6 +73,8 @@ bool readFileBytes(const std::wstring& path, std::vector<uint8_t>& out, uint64_t
 
 enum class Kind { None, Image, Model };
 Kind kindOfExt(const std::wstring& ext);
+// Microsoft Store (MSIX) install: returns the app user model ID ("PFN!App"), empty when running unpackaged
+std::wstring packagedAumid();
 const std::vector<std::wstring>& imageExts();
 const std::vector<std::wstring>& modelExts();
 

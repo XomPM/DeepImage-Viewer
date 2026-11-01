@@ -163,6 +163,16 @@ python3 package.py fonts        # → dist/
 5. `D:\DeepImage Viewer\Release-<ver>\`에 파일 4개 + `DeepImage-Thumbnail-Help.zip` + 노트 + `release.cmd`(gh CLI: 없으면 winget 설치 → `gh auth login --web` → 릴리스가 있으면 `upload --clobber`, 없으면 `release create --target main --latest`) 커밋. CRLF + UTF-8 + `chcp 65001`, 괄호 블록 안에서 `%PATH%` 확장 금지.
 6. 사용자에게 `release.cmd` 더블클릭 안내 → 이후 `https://api.github.com/repos/XomPM/deepimage-viewer/releases`로 자산 확인.
 
+## 6-1. Microsoft Store (MSIX)
+
+- 목적: 서명 없는 설치 파일의 SmartScreen·브라우저 경고 회피 — Store가 무료로 서명. 개인 개발자 등록 무료(신분증+셀카).
+- 도구: `microsoft/msix-packaging`의 **makemsix** (Linux 빌드). CMake 최소 3.29 → 3.28로 낮추고, ICU는 GitHub 릴리스 `icu4c-74_2-src.tgz`를 정적 빌드(`--prefix=/home/claude/icu-inst`) 후 `-DICU_ROOT`. 옵션 `-DMSIX_PACK=on -DUSE_VALIDATION_PARSER=on -DLINUX=on` (매니페스트 스키마 검증됨).
+- 오픈소스 makemsix는 **일반 .msixbundle을 못 만든다**(평면 번들만) → 아키텍처별 `.msix` 2개를 Partner Center에 함께 올린다.
+- `store/make_msix.py`: `shell_contract.h`에서 CLSID를 읽어 FileTypeAssociation마다 `desktop2:ThumbnailHandler`(중괄호 없는 GUID) + `com:SurrogateServer`에 `DeepImageThumbs.dll` 클래스 등록, 이미지 연결 프로그램, glTF는 연결만(IInitializeWithFile 필요). 에셋은 `res/app_icon_1024.png`에서 생성(scale/targetsize/unplated). 버전은 `kVersion` + `.0`.
+- 패키지 ID: Partner Center → 제품 ID의 Name/Publisher/PublisherDisplayName을 `store/identity.json`에 넣어야 업로드 가능(없으면 자리표시자). 
+- 앱 동작: `packagedAumid()`가 비어 있지 않으면 Store 실행 → AppUserModelID 덮어쓰지 않음, 기본 앱 설정은 `registeredAUMID=` 사용. Store 앱은 다른 앱 ProgID를 못 바꾸므로 썸네일 충돌 회피는 GitHub 설치판만.
+- 문서: `store/STORE-GUIDE.md`(등록 순서), `store/STORE-LISTING.md`(설명·검색어·runFullTrust 사유), `docs/PRIVACY.md`(개인정보 처리방침 URL).
+
 ## 7. 지나온 함정 (다시 밟지 말 것)
 
 - `layout()`이 매 프레임 `setViewport`를 부름 → **실제로 바뀐 경우에만** 다시 맞춤 처리(예전엔 맞춤 상태에서 +/−·이동이 매 프레임 되돌려짐).

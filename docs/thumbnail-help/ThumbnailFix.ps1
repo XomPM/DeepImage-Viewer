@@ -28,7 +28,10 @@ $report.Add("DeepImage Viewer thumbnail report  $(Get-Date -Format s)")
 $report.Add("Windows $([Environment]::OSVersion.Version)  $env:PROCESSOR_ARCHITECTURE")
 $inst = "$env:LOCALAPPDATA\Programs\DeepImage Viewer"
 $ver = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\DeepImageViewer').DisplayVersion
-$report.Add("DeepImage Viewer: " + $(if ($ver) { $ver } else { L '설치 안 됨' 'not installed' }) + "   DLL: " + (Test-Path "$inst\DeepImageThumbs.dll"))
+$src = L '설치 파일' 'installer'
+$appx = Get-AppxPackage -Name '*DeepImageViewer*' | Select-Object -First 1
+if ($appx) { $ver = $appx.Version; $inst = $appx.InstallLocation; $src = 'Microsoft Store' }
+$report.Add("DeepImage Viewer: " + $(if ($ver) { "$ver ($src)" } else { L '설치 안 됨' 'not installed' }) + "   DLL: " + (Test-Path "$inst\DeepImageThumbs.dll"))
 $report.Add('')
 
 Write-Host ''
@@ -51,11 +54,14 @@ foreach ($e in $exts) {
 }
 Write-Host ''
 if (-not $ver) { Write-Host (L '  → DeepImage Viewer 설치 파일로 설치하세요 ("탐색기 썸네일" 켜기).' '  → Install DeepImage Viewer with "Explorer thumbnails" enabled.') -ForegroundColor Yellow }
+elseif ($problems -and $src -eq 'Microsoft Store') { Write-Host (L '  → Store 버전은 다른 앱이 가져간 확장자를 되찾지 못합니다. 그 확장자는 GitHub 설치 파일 버전을 쓰거나 [C]로 캐시를 비워 보세요.' '  → The Store build cannot reclaim extensions taken by other apps. Use the GitHub installer for those, or clear the cache with [C].') -ForegroundColor Yellow }
 elseif ($problems) { Write-Host (L '  → 노란색/빨간색 항목이 있습니다. DeepImage Viewer 설치 파일을 다시 실행한 뒤 [C]로 캐시를 비우세요.' '  → Some extensions are not handled by DeepImage. Re-run the installer, then clear the cache with [C].') -ForegroundColor Yellow }
 else { Write-Host (L '  → 연결은 정상입니다. 썸네일이 안 보이면 [C]로 캐시를 비우세요.' '  → Registration looks fine. If thumbnails are still missing, clear the cache with [C].') -ForegroundColor Green }
 
+# the Store install folder is read-only: fall back to the desktop
 $out = Join-Path $PSScriptRoot 'ThumbnailReport.txt'
-$report | Set-Content -Encoding UTF8 $out
+try { $report | Set-Content -Encoding UTF8 $out -ErrorAction Stop }
+catch { $out = Join-Path ([Environment]::GetFolderPath('Desktop')) 'DeepImage-ThumbnailReport.txt'; $report | Set-Content -Encoding UTF8 $out }
 Write-Host (L "  보고서: $out" "  Report: $out")
 Write-Host ''
 Write-Host (L '  [C] 썸네일 캐시 비우기 (탐색기가 잠깐 다시 시작됩니다)   [Q] 끝내기' '  [C] Clear thumbnail cache (Explorer restarts briefly)   [Q] Quit')

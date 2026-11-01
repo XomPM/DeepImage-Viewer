@@ -1168,7 +1168,10 @@ void App::drawModal() {
         }
         float bw = G.textWidth(T("set.defaults"), 13, 600) + 52;
         U.textButton(hid("set.defaults"), RW(x, c.bottom - 54, bw, 34), T("set.defaults"), [] {
-            ShellExecuteW(nullptr, L"open", L"ms-settings:defaultapps?registeredAppUser=DeepImage%20Viewer", nullptr, nullptr, SW_SHOWNORMAL);
+            const std::wstring aumid = packagedAumid();
+            const std::wstring uri = aumid.empty() ? L"ms-settings:defaultapps?registeredAppUser=DeepImage%20Viewer"
+                                                   : L"ms-settings:defaultapps?registeredAUMID=" + aumid;
+            ShellExecuteW(nullptr, L"open", uri.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }, false, "external-link");
         {
             std::wstring hl = T("set.thumbhelp");

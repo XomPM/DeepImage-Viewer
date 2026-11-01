@@ -115,6 +115,17 @@ const std::vector<std::wstring>& modelExts() {
         L"dae", L"3ds", L"amf", L"off"};
     return v;
 }
+std::wstring packagedAumid() {
+    static const std::wstring id = [] {
+        using Fn = LONG(WINAPI*)(UINT32*, PWSTR);
+        auto fn = (Fn)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetCurrentApplicationUserModelId");
+        wchar_t buf[512];
+        UINT32 n = 512;
+        return fn && fn(&n, buf) == ERROR_SUCCESS ? std::wstring(buf) : std::wstring();
+    }();
+    return id;
+}
+
 Kind kindOfExt(const std::wstring& e) {
     for (auto& x : imageExts()) if (x == e) return Kind::Image;
     for (auto& x : modelExts()) if (x == e) return Kind::Model;

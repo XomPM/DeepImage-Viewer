@@ -39,7 +39,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     if (argc >= 2 && !wcscmp(argv[1], L"--thumbnail")) return runWorker(argc, argv);
 
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    SetCurrentProcessExplicitAppUserModelID(L"DMIND.DeepImageViewer");
+    if (packagedAumid().empty()) SetCurrentProcessExplicitAppUserModelID(L"DMIND.DeepImageViewer"); // Store builds keep the package identity
     if (FAILED(OleInitialize(nullptr))) return 1;
     S.load();
     setLang(S.language == 1 ? Lang::Ko : S.language == 2 ? Lang::En : (PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_KOREAN ? Lang::Ko : Lang::En));
