@@ -29,11 +29,12 @@
   </radialGradient>
   <clipPath id="rclip"><path d="M512 512 L772 362 L772 662 L512 812 Z"/></clipPath>
 </defs>
-<rect x="72" y="72" width="880" height="880" rx="200" fill="url(#tile)"/>
-<rect x="72" y="72" width="880" height="880" rx="200" fill="url(#glow)"/>
-<rect x="73.5" y="73.5" width="877" height="877" rx="198.5" fill="none" stroke="url(#tileEdge)" stroke-width="3"/>
-<ellipse cx="512" cy="824" rx="290" ry="56" fill="url(#shadow)"/>
-<!-- cube -->
+<g transform="translate(512 512) scale(1.5) translate(-512 -512)">
+  <!-- soft contact shadow -->
+  <ellipse cx="512" cy="800" rx="250" ry="34" fill="url(#shadow)" opacity="0.55"/>
+  <!-- outline: reads on light and dark backgrounds -->
+  <path d="M512 212 L772 362 L772 662 L512 812 L252 662 L252 362 Z" fill="#2E2D33" stroke="#2E2D33" stroke-width="16" stroke-linejoin="round"/>
+  <!-- cube -->
 <path d="M512 512 L252 362 L512 212 L772 362 Z" fill="url(#top)"/>
 <path d="M512 512 L252 362 L512 212 L772 362 Z" fill="url(#sheen)"/>
 <path d="M512 512 L252 362 L252 662 L512 812 Z" fill="url(#left)"/>
@@ -52,4 +53,7 @@
 <path d="M252 362 L512 512 L772 362" fill="none" stroke="#FFFFFF" stroke-opacity="0.85" stroke-width="4" stroke-linejoin="round"/>
 <path d="M512 512 L512 812" fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="3"/>
 <path d="M512 212 L772 362 M512 212 L252 362" fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="3"/>
+
+  <path d="M512 212 L772 362 L772 662 L512 812 L252 662 L252 362 Z" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="2" stroke-linejoin="round"/>
+</g>
 </svg>
