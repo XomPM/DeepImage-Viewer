@@ -1170,6 +1170,17 @@ void App::drawModal() {
         U.textButton(hid("set.defaults"), RW(x, c.bottom - 54, bw, 34), T("set.defaults"), [] {
             ShellExecuteW(nullptr, L"open", L"ms-settings:defaultapps?registeredAppUser=DeepImage%20Viewer", nullptr, nullptr, SW_SHOWNORMAL);
         }, false, "external-link");
+        {
+            std::wstring hl = T("set.thumbhelp");
+            float hw = G.textWidth(hl, 13, 600) + 52;
+            U.textButton(hid("set.thumbhelp"), RW(x + bw + 8, c.bottom - 54, hw, 34), hl, [] {
+                std::wstring dir = exeDir() + L"\\Help";
+                if (GetFileAttributesW((dir + L"\\THUMBNAIL-HELP.md").c_str()) != INVALID_FILE_ATTRIBUTES)
+                    ShellExecuteW(nullptr, L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                else
+                    ShellExecuteW(nullptr, L"open", L"https://github.com/XomPM/DeepImage-Viewer/blob/main/docs/thumbnail-help/THUMBNAIL-HELP.md", nullptr, nullptr, SW_SHOWNORMAL);
+            }, false, "info");
+        }
     } else if (modal.kind == 2) {
         float cx = cxOf(c);
         if (markBmp) G.dc->DrawBitmap(markBmp.Get(), RW(cx - 44, y, 88, 88), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);

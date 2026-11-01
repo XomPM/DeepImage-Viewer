@@ -32,6 +32,7 @@ const std::unordered_map<std::string, Entry>& table() {
         {"compare.need2", {L"비교할 이미지가 2장 이상 필요합니다", L"Compare needs at least two images"}},
         {"print3d", {L"3D프린팅", L"3D Printing"}},
         {"about.github", {L"GitHub", L"GitHub"}},
+        {"set.thumbhelp", {L"썸네일 문제 해결", L"Thumbnail troubleshooting"}},
         {"set.thumbs", {L"썸네일", L"Thumbnails"}},
         {"set.thumbcolor", {L"3D 모델 색상", L"3D model colour"}},
         {"set.thumbcolor.all", {L"색이 있는 모델에도 적용", L"Apply to coloured models too"}},

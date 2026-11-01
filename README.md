@@ -29,6 +29,10 @@ Made by **DMIND** · dmind114@gmail.com
 - OS 테마(라이트/다크)와 강조색 연동, 한국어 / English
 - 3D 보기에서 **3D프린팅** 버튼 → 3DMIND 제작 요청서
 
+## 탐색기 썸네일이 안 보일 때 · Thumbnail troubleshooting
+
+[docs/thumbnail-help/THUMBNAIL-HELP.md](docs/thumbnail-help/THUMBNAIL-HELP.md) 를 참고하세요. 설치 폴더의 `Help\ThumbnailFix.cmd` (또는 릴리스의 `DeepImage-Thumbnail-Help.zip`)로 진단과 썸네일 캐시 비우기를 한 번에 할 수 있습니다. 앱의 **설정 → 썸네일 문제 해결** 버튼으로도 열 수 있습니다.
+
 ## 단축키 · Shortcuts
 
 | 키 | 기능 |

@@ -93,6 +93,10 @@ C++20, Windows 전용 API. Linux에서 **llvm-mingw**로 x64·ARM64 교차 빌�
 - 미리보기 없으면 `load.gcode` 안내. 필름스트립 확장자 배지 표시, 탐색기 핸들러 CLSID `{E8E359B7-8AB6-4713-8956-BB7BAB759DDE}`(.gcode/.gco), `{E44C69BD-81E3-4D73-B040-7F5FF2ED4E1A}`(.bgcode). 툴패스 3D 렌더링은 아직 없음.
 - SVG는 D2D SVG로 보기·썸네일·탐색기 썸네일 모두 지원(Wine에서는 안 보임).
 
+### 썸네일 문제 해결 도구 (1.0.2)
+- `docs/thumbnail-help/` : `THUMBNAIL-HELP.md`(한/영 안내), `ThumbnailFix.cmd` → `ThumbnailFix.ps1`(UTF-8 BOM, CRLF). 확장자별 `AssocQueryString(SHELLEXTENSION)` 결과와 담당 클래스 이름, 64비트 등록 여부(32비트 전용 = 깨짐), UserChoice ProgID 표시 → `ThumbnailReport.txt` 저장 → [C] 탐색기 종료·`thumbcache_*.db` 삭제·재시작.
+- 설치 폴더 `Help\`와 포터블 zip에 포함, 릴리스 자산 `DeepImage-Thumbnail-Help.zip` 별도. 설정 창 하단 **썸네일 문제 해결** 버튼 → 설치 폴더 Help 열기(없으면 GitHub 문서). 제거기는 Help 파일·폴더도 지운다.
+
 ### 정보 창
 - 버전 / 제작 **DMIND**(링크 → `https://www.godgok.com/3dmind/`) / 문의 메일 / **GitHub**(링크 → `https://github.com/XomPM/DeepImage-Viewer`). 링크는 강조색 + hover 밑줄 + 손 커서.
 
@@ -156,7 +160,7 @@ python3 package.py fonts        # → dist/
 2. x64·arm64 빌드 → `package.py` → 버전 문자열(UTF-16) 포함 확인.
 3. `RELEASE_NOTES.md` 작성(한국어, 사용자 관점).
 4. 저장소 갱신 후 `git push origin main` (커밋 메시지 끝에 Co-Authored-By/Claude-Session 줄).
-5. `D:\DeepImage Viewer\Release-<ver>\`에 파일 4개 + 노트 + `release.cmd`(gh CLI: 없으면 winget 설치 → `gh auth login --web` → 릴리스가 있으면 `upload --clobber`, 없으면 `release create --target main --latest`) 커밋. CRLF + UTF-8 + `chcp 65001`, 괄호 블록 안에서 `%PATH%` 확장 금지.
+5. `D:\DeepImage Viewer\Release-<ver>\`에 파일 4개 + `DeepImage-Thumbnail-Help.zip` + 노트 + `release.cmd`(gh CLI: 없으면 winget 설치 → `gh auth login --web` → 릴리스가 있으면 `upload --clobber`, 없으면 `release create --target main --latest`) 커밋. CRLF + UTF-8 + `chcp 65001`, 괄호 블록 안에서 `%PATH%` 확장 금지.
 6. 사용자에게 `release.cmd` 더블클릭 안내 → 이후 `https://api.github.com/repos/XomPM/deepimage-viewer/releases`로 자산 확인.
 
 ## 7. 지나온 함정 (다시 밟지 말 것)
@@ -175,4 +179,4 @@ python3 package.py fonts        # → dist/
 
 - **1.0.0** (2026-10-30): 첫 공개. 이미지+3D 뷰어, 마크업, 편집, EXIF/히스토그램, 탐색기 썸네일, 설치기(x64/ARM64), 비교 모드, 맞춤 5종, 단축키 개편, 3D프린팅 버튼.
 - **1.0.1** (2026-11-01): 3MF 내장 썸네일 우선, 썸네일 디스크 캐시, 3D 썸네일 색상 설정, 탐색기 STL 수정, 아이콘 크기 버그 수정, 새 앱 아이콘(투명 배경 육면체 + DMIND 로고).
-- **1.0.2** (2026-11-01): G-code/bgcode 미리보기(보기·썸네일·탐색기), 정보 창 DMIND·GitHub 링크.
+- **1.0.2** (2026-11-01): G-code/bgcode 미리보기(보기·썸네일·탐색기), 정보 창 DMIND·GitHub 링크, 탐색기 썸네일 문제 해결 안내서·진단 도구.

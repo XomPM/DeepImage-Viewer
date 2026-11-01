@@ -489,7 +489,8 @@ void uninstallWorker() {
     post(75, L"파일을 지우는 중", L"Removing files");
     if (!dir.empty() && dir.find(L"DeepImage Viewer") != std::wstring::npos) {
         const wchar_t* files[] = {L"DeepImage.exe", L"dvmodel.dll", L"DeepImageThumbs.dll", L"Uninstall.exe", L"LICENSES.txt",
-                                  L"fonts\\Pretendard-Regular.otf", L"fonts\\Pretendard-Medium.otf", L"fonts\\Pretendard-SemiBold.otf"};
+                                  L"fonts\\Pretendard-Regular.otf", L"fonts\\Pretendard-Medium.otf", L"fonts\\Pretendard-SemiBold.otf",
+                                  L"Help\\THUMBNAIL-HELP.md", L"Help\\ThumbnailFix.cmd", L"Help\\ThumbnailFix.ps1", L"Help\\ThumbnailReport.txt"};
         for (auto f : files) {
             std::wstring p = dir + L"\\" + f;
             if (!DeleteFileW(p.c_str()) && GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES) {
@@ -500,6 +501,7 @@ void uninstallWorker() {
         }
         cleanupOld(dir);
         RemoveDirectoryW((dir + L"\\fonts").c_str());
+        RemoveDirectoryW((dir + L"\\Help").c_str());
         RemoveDirectoryW(dir.c_str());
     }
     post(100, L"완료", L"Done");
