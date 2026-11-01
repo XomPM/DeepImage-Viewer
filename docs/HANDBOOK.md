@@ -173,6 +173,13 @@ python3 package.py fonts        # → dist/
 - 앱 동작: `packagedAumid()`가 비어 있지 않으면 Store 실행 → AppUserModelID 덮어쓰지 않음, 기본 앱 설정은 `registeredAUMID=` 사용. Store 앱은 다른 앱 ProgID를 못 바꾸므로 썸네일 충돌 회피는 GitHub 설치판만.
 - 문서: `store/STORE-GUIDE.md`(등록 순서), `store/STORE-LISTING.md`(설명·검색어·runFullTrust 사유), `docs/PRIVACY.md`(개인정보 처리방침 URL).
 
+### Partner Center 실제 등록 (2026-11-01)
+- 제품은 반드시 **"MSIX 또는 PWA 앱"**(EXE/MSI 앱은 서명된 설치 파일 URL이 필요해 불가). Store ID `9NGVFW0BKS97`, Name `0B0E4BB4.DeepImageViewer`, Publisher `CN=491EF4DE-ED2A-4D71-9E7B-7DF6D46E9373`, PublisherDisplayName `디마인드`, PFN `0B0E4BB4.DeepImageViewer_qkmcfd0fett58` → `store/identity.json`.
+- 에셋은 **정확한 파일 이름**(Assets\StoreLogo.png 등)만 넣는다. scale-/targetsize- 변형만 있으면 "이미지를 찾을 수 없음" 오류(resources.pri 없음).
+- runFullTrust → 개인정보처리방침 URL 필수(속성), 제출 옵션에 사용 이유(최대 500자). 가격: KRW 0, 범주 사진+동영상 / 보조 멀티미디어 디자인, IARC 모두 "아니요" → 3+.
+- 스토어 목록(ko-KR, en-US) 설명·기능 9개·짧은 설명·개발자(DMIND) 입력됨. 스크린샷(≥1장)은 사용자가 업로드. 버전 업데이트 시: kVersion 올리기 → `store/make_msix.py` → 새 제출에서 패키지만 교체.
+- 브라우저 작업: 사용자의 Claude 내장 브라우저에 로그인돼 있음. 약관 동의·삭제·파일 업로드·"인증을 위해 제출"은 사용자에게 맡긴다.
+
 ## 7. 지나온 함정 (다시 밟지 말 것)
 
 - `layout()`이 매 프레임 `setViewport`를 부름 → **실제로 바뀐 경우에만** 다시 맞춤 처리(예전엔 맞춤 상태에서 +/−·이동이 매 프레임 되돌려짐).
