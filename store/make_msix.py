@@ -107,22 +107,17 @@ def fit(w, h, frac, sharpen=False):
     if sharpen: im = im.filter(ImageFilter.UnsharpMask(radius=0.5, percent=50, threshold=0))
     c.alpha_composite(im, ((w - im.width) // 2, (h - im.height) // 2))
     return c
-assets = {}
-for sc in (100, 125, 150, 200, 400):
-    f = sc / 100
-    assets[f'Square150x150Logo.scale-{sc}.png'] = fit(round(150 * f), round(150 * f), .62)
-    assets[f'Wide310x150Logo.scale-{sc}.png'] = fit(round(310 * f), round(150 * f), .62)
-    assets[f'SmallTile.scale-{sc}.png'] = fit(round(71 * f), round(71 * f), .70)
-    assets[f'LargeTile.scale-{sc}.png'] = fit(round(310 * f), round(310 * f), .60)
-    assets[f'Square44x44Logo.scale-{sc}.png'] = fit(round(44 * f), round(44 * f), .92, sc <= 125)
-    assets[f'StoreLogo.scale-{sc}.png'] = fit(round(50 * f), round(50 * f), .92)
-    assets[f'FileLogo.scale-{sc}.png'] = fit(round(44 * f), round(44 * f), .92, sc <= 125)
-for t in (16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 80, 96, 256):
-    im = fit(t, t, .96 if t <= 32 else .92, t <= 32)
-    assets[f'Square44x44Logo.targetsize-{t}.png'] = im
-    assets[f'Square44x44Logo.targetsize-{t}_altform-unplated.png'] = im
-    assets[f'Square44x44Logo.targetsize-{t}_altform-lightunplated.png'] = im
-    assets[f'FileLogo.targetsize-{t}.png'] = im
+# Plain (unqualified) file names: scale-/targetsize- variants only work with a resources.pri index (MakePri, Windows-only),
+# and the Store rejects a package whose manifest images are not present under their exact names.
+assets = {
+    'StoreLogo.png': fit(50, 50, .92),
+    'Square44x44Logo.png': fit(44, 44, .92, True),
+    'Square150x150Logo.png': fit(150, 150, .62),
+    'Wide310x150Logo.png': fit(310, 150, .62),
+    'SmallTile.png': fit(71, 71, .70),
+    'LargeTile.png': fit(310, 310, .60),
+    'FileLogo.png': fit(44, 44, .92, True),
+}
 
 out = os.path.join(root, 'dist', 'store')
 shutil.rmtree(out, ignore_errors=True)
