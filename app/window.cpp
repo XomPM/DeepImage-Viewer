@@ -244,7 +244,8 @@ LRESULT App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             ScreenToClient(h, &pt);
             float x = pt.x / G.scale, y = pt.y / G.scale;
             HCURSOR c = nullptr;
-            if (U.overWidget(x, y) || modal.kind) c = LoadCursorW(nullptr, IDC_ARROW);
+            if (HCURSOR wc = U.cursorAt(x, y)) c = wc;
+            else if (U.overWidget(x, y) || modal.kind) c = LoadCursorW(nullptr, IDC_ARROW);
             else if (inside(rcViewport, x, y)) {
                 if (mode == Mode::Image) {
                     if (panel == EditPanel::Crop) {

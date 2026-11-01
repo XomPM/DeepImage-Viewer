@@ -105,7 +105,8 @@ const std::vector<std::wstring>& imageExts() {
     static const std::vector<std::wstring> v = {
         L"jpg", L"jpeg", L"jpe", L"jfif", L"png", L"apng", L"gif", L"webp", L"bmp", L"dib", L"ico", L"cur", L"tif", L"tiff",
         L"svg", L"avif", L"heic", L"heif", L"jxr", L"wdp", L"hdp", L"dds", L"tga", L"psd", L"ppm", L"pgm", L"pnm",
-        L"dng", L"cr2", L"cr3", L"nef", L"arw", L"orf", L"rw2", L"raf", L"srw", L"pef"};
+        L"dng", L"cr2", L"cr3", L"nef", L"arw", L"orf", L"rw2", L"raf", L"srw", L"pef",
+        L"gcode", L"gco", L"bgcode"}; // G-code: the slicer's embedded preview picture is shown
     return v;
 }
 const std::vector<std::wstring>& modelExts() {

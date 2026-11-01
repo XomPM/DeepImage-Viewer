@@ -237,7 +237,7 @@ struct Options { bool desktop = true, thumbs = true, assoc = true; };
 
 std::vector<std::wstring> imageAssocExts() {
     return {L"jpg", L"jpeg", L"jpe", L"jfif", L"png", L"apng", L"gif", L"webp", L"bmp", L"dib", L"ico", L"tif", L"tiff", L"svg", L"avif",
-            L"heic", L"heif", L"jxr", L"wdp", L"dds", L"tga", L"psd", L"ppm", L"pgm", L"pnm", L"dng", L"cr2", L"cr3", L"nef", L"arw", L"orf", L"rw2", L"raf"};
+            L"heic", L"heif", L"jxr", L"wdp", L"dds", L"tga", L"psd", L"ppm", L"pgm", L"pnm", L"dng", L"cr2", L"cr3", L"nef", L"arw", L"orf", L"rw2", L"raf", L"gcode", L"gco", L"bgcode"};
 }
 std::vector<std::wstring> modelAssocExts() {
     return {L"stl", L"3mf", L"obj", L"ply", L"gltf", L"glb", L"fbx", L"step", L"stp", L"iges", L"igs", L"brep", L"brp", L"dae", L"3ds", L"amf", L"off"};

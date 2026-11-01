@@ -284,7 +284,7 @@ void App::drawEmpty() {
         return row + 26;
     };
     y = chips(T("open.formats.images"), {L"JPG", L"PNG", L"GIF", L"WEBP", L"HEIC", L"AVIF", L"TIFF", L"BMP", L"SVG", L"PSD", L"TGA", L"RAW"}, y) + 6;
-    chips(T("open.formats.models"), {L"STL", L"3MF", L"OBJ", L"PLY", L"GLTF", L"GLB", L"FBX", L"STEP", L"IGES", L"BREP", L"DAE", L"3DS", L"AMF"}, y);
+    chips(T("open.formats.models"), {L"STL", L"3MF", L"OBJ", L"PLY", L"GLTF", L"GLB", L"FBX", L"STEP", L"IGES", L"BREP", L"DAE", L"3DS", L"AMF", L"GCODE"}, y);
 }
 
 // ======================================================================== image
@@ -905,7 +905,7 @@ void App::drawFilmstrip() {
         }
         dc->PopLayer();
         G.stroke(r, P.line, 10, 1);
-        if (f.kind == Kind::Model) {
+        if (f.kind == Kind::Model || f.ext == L"gcode" || f.ext == L"gco" || f.ext == L"bgcode") {
             std::wstring e = f.ext;
             for (auto& c : e) c = (wchar_t)towupper(c);
             float bw = G.textWidth(e, 8.5f, 700) + 8;
@@ -1060,7 +1060,7 @@ void App::drawModal() {
     auto& bg = U.add(hid("modal.bg"), R(0, 0, G.W(), G.H()));
     if (modal.kind == 1 || modal.kind == 2) bg.click = [this] { closeModal(); requestPaint(); };
     float W = modal.kind == 4 ? 420.f : 470.f;
-    float H = modal.kind == 1 ? 650.f : modal.kind == 2 ? 470.f : modal.kind == 3 ? 300.f : 200.f;
+    float H = modal.kind == 1 ? 650.f : modal.kind == 2 ? 514.f : modal.kind == 3 ? 300.f : 200.f;
     if (modal.kind == 4) {
         auto l = G.layout(modal.message, 13, 400, W - 40, 400, AL, true);
         DWRITE_TEXT_METRICS m{};
@@ -1178,26 +1178,31 @@ void App::drawModal() {
         y += 30;
         G.text(T("tagline"), RW(c.left, y, W, 20), 13, P.text2, 400, AC);
         y += 34;
-        D2D1_RECT_F card = RW(x, y, w, 132);
+        D2D1_RECT_F card = RW(x, y, w, 176);
         G.fill(card, P.surface2, 12);
         G.stroke(card, P.line, 12, 1);
-        auto row = [&](const char* k, const std::wstring& v, float yy, bool link) {
+        // url empty = plain value; otherwise an accent-coloured link opened in the browser / mail client
+        auto row = [&](const char* k, const std::wstring& v, float yy, const wchar_t* url) {
             G.text(T(k), RW(x + 16, yy, 80, 44), 12.5f, P.text3);
-            if (link) {
+            if (url) {
                 float lw = G.textWidth(v, 12.5f, 600);
                 D2D1_RECT_F lr = RW(x + 100, yy + 10, lw, 24);
-                auto& g = U.add(hid("about.mail"), lr);
-                g.click = [] { ShellExecuteW(nullptr, L"open", L"mailto:dmind114@gmail.com", nullptr, nullptr, SW_SHOWNORMAL); };
+                auto& g = U.add(hid("about.link", (int)(yy - card.top)), lr);
+                g.tipText = url;
+                g.cursor = LoadCursorW(nullptr, IDC_HAND);
+                g.click = [url] { ShellExecuteW(nullptr, L"open", url, nullptr, nullptr, SW_SHOWNORMAL); };
                 G.text(v, RW(x + 100, yy, lw + 4, 44), 12.5f, P.accent, 600);
                 if (U.isHot(g.id)) G.line(x + 100, yy + 30, x + 100 + lw, yy + 30, P.accent, 1);
             } else G.text(v, RW(x + 100, yy, w - 110, 44), 12.5f, P.text, 600);
         };
-        row("about.version", kVersion, y, false);
+        row("about.version", kVersion, y, nullptr);
         G.line(x, y + 44, x + w, y + 44, P.line);
-        row("about.madeby", L"DMIND", y + 44, false);
+        row("about.madeby", L"DMIND", y + 44, L"https://www.godgok.com/3dmind/");
         G.line(x, y + 88, x + w, y + 88, P.line);
-        row("about.contact", L"dmind114@gmail.com", y + 88, true);
-        y += 146;
+        row("about.contact", L"dmind114@gmail.com", y + 88, L"mailto:dmind114@gmail.com");
+        G.line(x, y + 132, x + w, y + 132, P.line);
+        row("about.github", L"github.com/XomPM/DeepImage-Viewer", y + 132, L"https://github.com/XomPM/DeepImage-Viewer");
+        y += 190;
         G.text(std::wstring(T("about.credits")) + L" — " + T("about.credits.text"), RW(x, y, w, 70), 11.5f, P.text3, 400, AL, true, false);
     } else if (modal.kind == 3) {
         auto field = [&](int idx, const char* label, std::wstring& val, float fx) {

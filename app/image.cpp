@@ -256,6 +256,206 @@ bool decodeStb(IWICImagingFactory* wic, const std::wstring& path, DecodedImage& 
 
 } // namespace
 
+// ======================================================================== G-code previews
+// Slicers embed preview pictures in G-code:
+//   text:   "; thumbnail begin 300x300 12345" / "; thumbnail_JPG begin" / "; thumbnail_QOI begin" ... base64 lines ... "; thumbnail end"
+//           (PrusaSlicer, Orca Slicer, Bambu Studio, Creality Print, SuperSlicer, Cura with thumbnail plugin)
+//   binary: Prusa .bgcode thumbnail blocks (PNG / JPG / QOI)
+namespace {
+std::vector<uint8_t> readRange(HANDLE h, uint64_t off, size_t n) {
+    std::vector<uint8_t> b(n);
+    OVERLAPPED o{};
+    o.Offset = (DWORD)off;
+    o.OffsetHigh = (DWORD)(off >> 32);
+    DWORD got = 0;
+    if (!ReadFile(h, b.data(), (DWORD)n, &got, &o)) got = 0;
+    b.resize(got);
+    return b;
+}
+std::vector<uint8_t> unbase64(const std::string& s) {
+    static int8_t T[256];
+    static bool init = [] {
+        memset(T, -1, sizeof T);
+        const char* a = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        for (int i = 0; i < 64; ++i) T[(uint8_t)a[i]] = (int8_t)i;
+        return true;
+    }();
+    (void)init;
+    std::vector<uint8_t> out;
+    out.reserve(s.size() * 3 / 4);
+    uint32_t acc = 0;
+    int bits = 0;
+    for (unsigned char c : s) {
+        if (T[c] < 0) continue;
+        acc = (acc << 6) | (uint32_t)T[c];
+        bits += 6;
+        if (bits >= 8) { bits -= 8; out.push_back((uint8_t)(acc >> bits)); }
+    }
+    return out;
+}
+struct Preview { int w = 0, h = 0; int fmt = 0; std::vector<uint8_t> data; }; // fmt 0 png/jpg (WIC), 2 QOI
+
+void scanText(const std::string& t, Preview& best) {
+    size_t p = 0;
+    while ((p = t.find("thumbnail", p)) != std::string::npos) {
+        size_t ls = t.rfind('\n', p);
+        ls = ls == std::string::npos ? 0 : ls + 1;
+        size_t le = t.find('\n', p);
+        if (le == std::string::npos) break;
+        std::string line = t.substr(ls, le - ls);
+        p = le;
+        if (line.empty() || line[0] != ';' || line.find(" begin") == std::string::npos) continue;
+        int fmt = line.find("QOI") != std::string::npos ? 2 : 0;
+        int w = 0, h = 0;
+        size_t b = line.find(" begin");
+        sscanf(line.c_str() + b + 6, " %dx%d", &w, &h);
+        size_t end = t.find("thumbnail", le);
+        while (end != std::string::npos) {
+            size_t a = t.rfind('\n', end);
+            size_t e = t.find('\n', end);
+            std::string l2 = t.substr(a == std::string::npos ? 0 : a + 1, (e == std::string::npos ? t.size() : e) - (a == std::string::npos ? 0 : a + 1));
+            if (l2.find(" end") != std::string::npos) break;
+            end = t.find("thumbnail", end + 9);
+        }
+        if (end == std::string::npos) break;
+        size_t endLine = t.rfind('\n', end);
+        std::string body;
+        body.reserve(endLine - le);
+        for (size_t i = le + 1; i < endLine; ++i) {
+            char c = t[i];
+            if (c == ';' || c == ' ' || c == '\r' || c == '\n' || c == '\t') continue;
+            body.push_back(c);
+        }
+        p = end + 9;
+        if ((int64_t)w * h <= (int64_t)best.w * best.h && !best.data.empty()) continue;
+        auto bytes = unbase64(body);
+        if (bytes.size() < 16) continue;
+        if (w <= 0 || h <= 0) { w = 1; h = 1; }
+        best = {w, h, fmt, std::move(bytes)};
+    }
+    // Snapmaker / Luban style: ";thumbnail: data:image/png;base64,...."
+    size_t q = t.find("thumbnail: data:image/");
+    if (q != std::string::npos && best.data.empty()) {
+        size_t c = t.find("base64,", q);
+        size_t e = t.find('\n', q);
+        if (c != std::string::npos && c < e) best = {1, 1, 0, unbase64(t.substr(c + 7, e - c - 7))};
+    }
+}
+
+void scanBinary(HANDLE h, uint64_t size, Preview& best) {
+    auto hdr = readRange(h, 0, 10);
+    if (hdr.size() < 10 || memcmp(hdr.data(), "GCDE", 4) != 0) return;
+    const uint16_t checksum = (uint16_t)(hdr[8] | hdr[9] << 8);
+    uint64_t off = 10;
+    for (int guard = 0; guard < 256 && off + 8 <= size; ++guard) {
+        auto bh = readRange(h, off, 12);
+        if (bh.size() < 8) return;
+        uint16_t type = (uint16_t)(bh[0] | bh[1] << 8), comp = (uint16_t)(bh[2] | bh[3] << 8);
+        uint32_t usize, csize;
+        memcpy(&usize, bh.data() + 4, 4);
+        csize = usize;
+        uint64_t hlen = 8;
+        if (comp) { memcpy(&csize, bh.data() + 8, 4); hlen = 12; }
+        const uint64_t params = type == 5 ? 6 : 2;
+        if (type == 1) return; // G-code blocks follow: no more thumbnails
+        if (type == 5 && comp == 0) {
+            auto pr = readRange(h, off + hlen, 6);
+            if (pr.size() == 6) {
+                int fmt = pr[0] | pr[1] << 8, w = pr[2] | pr[3] << 8, hh = pr[4] | pr[5] << 8;
+                if ((int64_t)w * hh > (int64_t)best.w * best.h && csize < (16u << 20))
+                    best = {w, hh, fmt == 2 ? 2 : 0, readRange(h, off + hlen + params, csize)};
+            }
+        }
+        off += hlen + params + csize + (checksum == 1 ? 4 : 0);
+    }
+}
+
+// QOI (https://qoiformat.org) -> RGBA
+bool decodeQoi(const std::vector<uint8_t>& d, std::vector<uint8_t>& rgba, UINT& w, UINT& h) {
+    if (d.size() < 22 || memcmp(d.data(), "qoif", 4) != 0) return false;
+    w = (UINT)d[4] << 24 | (UINT)d[5] << 16 | (UINT)d[6] << 8 | d[7];
+    h = (UINT)d[8] << 24 | (UINT)d[9] << 16 | (UINT)d[10] << 8 | d[11];
+    if (!w || !h || w > 8192 || h > 8192) return false;
+    rgba.assign((size_t)w * h * 4, 0);
+    uint8_t idx[64][4] = {};
+    uint8_t px[4] = {0, 0, 0, 255};
+    size_t p = 14, run = 0;
+    for (size_t i = 0; i < (size_t)w * h; ++i) {
+        if (run) --run;
+        else if (p < d.size()) {
+            uint8_t b = d[p++];
+            if (b == 0xFE && p + 3 <= d.size()) { px[0] = d[p]; px[1] = d[p + 1]; px[2] = d[p + 2]; p += 3; }
+            else if (b == 0xFF && p + 4 <= d.size()) { memcpy(px, &d[p], 4); p += 4; }
+            else if ((b & 0xC0) == 0x00) memcpy(px, idx[b], 4);
+            else if ((b & 0xC0) == 0x40) { px[0] += ((b >> 4) & 3) - 2; px[1] += ((b >> 2) & 3) - 2; px[2] += (b & 3) - 2; }
+            else if ((b & 0xC0) == 0x80 && p < d.size()) {
+                int dg = (b & 0x3F) - 32;
+                uint8_t b2 = d[p++];
+                px[0] += dg - 8 + ((b2 >> 4) & 15);
+                px[1] += dg;
+                px[2] += dg - 8 + (b2 & 15);
+            } else run = b & 0x3F;
+            uint8_t* e = idx[(px[0] * 3 + px[1] * 5 + px[2] * 7 + px[3] * 11) % 64];
+            memcpy(e, px, 4);
+        }
+        memcpy(&rgba[i * 4], px, 4);
+    }
+    return true;
+}
+
+bool decodeGcode(IWICImagingFactory* wic, const std::wstring& path, DecodedImage& out, std::string& err) {
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER sz{};
+    GetFileSizeEx(h, &sz);
+    const uint64_t size = (uint64_t)sz.QuadPart;
+    Preview best;
+    scanBinary(h, size, best);
+    if (best.data.empty()) {
+        // previews live in the header (first few MB); some tools append them at the end
+        auto head = readRange(h, 0, (size_t)std::min<uint64_t>(size, 6u << 20));
+        scanText(std::string(head.begin(), head.end()), best);
+        if (best.data.empty() && size > (6u << 20)) {
+            auto tail = readRange(h, size - (2u << 20), 2u << 20);
+            scanText(std::string(tail.begin(), tail.end()), best);
+        }
+    }
+    CloseHandle(h);
+    if (best.data.empty()) { err = "load.gcode"; return false; }
+    ComPtr<IWICBitmapSource> src;
+    std::vector<uint8_t> rgba;
+    UINT w = 0, hh = 0;
+    ComPtr<IWICBitmap> raw;
+    if (best.fmt == 2 || (best.data.size() > 4 && memcmp(best.data.data(), "qoif", 4) == 0)) {
+        if (!decodeQoi(best.data, rgba, w, hh) ||
+            FAILED(wic->CreateBitmapFromMemory(w, hh, GUID_WICPixelFormat32bppRGBA, w * 4, (UINT)rgba.size(), rgba.data(), &raw)))
+            return false;
+        src = raw;
+        out.format = L"G-code (QOI)";
+    } else {
+        ComPtr<IWICStream> st;
+        ComPtr<IWICBitmapDecoder> dec;
+        ComPtr<IWICBitmapFrameDecode> f;
+        if (FAILED(wic->CreateStream(&st)) || FAILED(st->InitializeFromMemory(best.data.data(), (DWORD)best.data.size())) ||
+            FAILED(wic->CreateDecoderFromStream(st.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &dec)) || FAILED(dec->GetFrame(0, &f)))
+            return false;
+        // copy now: the stream points into best.data
+        if (FAILED(wic->CreateBitmapFromSource(f.Get(), WICBitmapCacheOnLoad, &raw))) return false;
+        src = raw;
+        GUID c{};
+        dec->GetContainerFormat(&c);
+        out.format = c == GUID_ContainerFormatJpeg ? L"G-code (JPEG)" : L"G-code (PNG)";
+    }
+    auto bmp = toPbgra(wic, src.Get());
+    if (!bmp) return false;
+    bmp->GetSize(&out.width, &out.height);
+    out.bitDepth = 32;
+    out.frames.push_back(bmp);
+    out.delays.push_back(0);
+    return true;
+}
+} // namespace
+
 bool decodeImageFile(const std::wstring& path, DecodedImage& out, std::string& err, UINT maxSvgEdge) {
     ComInit com;
     out = DecodedImage{};
@@ -266,6 +466,7 @@ bool decodeImageFile(const std::wstring& path, DecodedImage& out, std::string& e
     if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic)))) return false;
     if (ext == L"tga" || ext == L"psd" || ext == L"ppm" || ext == L"pgm" || ext == L"pnm" || ext == L"hdr")
         return decodeStb(wic.Get(), path, out);
+    if (ext == L"gcode" || ext == L"gco" || ext == L"bgcode") return decodeGcode(wic.Get(), path, out, err);
     ComPtr<IWICBitmapDecoder> dec;
     HRESULT h = wic->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &dec);
     if (FAILED(h)) {

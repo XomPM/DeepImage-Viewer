@@ -1,7 +1,7 @@
 # DeepImage Viewer — native Windows build (x64 / ARM64)
 # Copyright (c) DMIND <dmind114@gmail.com>. MIT License.
 cmake_minimum_required(VERSION 3.20)
-project(DeepImageViewer VERSION 1.0.1 LANGUAGES C CXX RC)
+project(DeepImageViewer VERSION 1.0.2 LANGUAGES C CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

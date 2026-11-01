@@ -10,9 +10,9 @@ Made by **DMIND** · dmind114@gmail.com
 
 | 파일 | 대상 |
 |---|---|
-| `DeepImage-Viewer-1.0.1-Setup-x64.exe` | 일반 Windows PC (Intel / AMD) |
-| `DeepImage-Viewer-1.0.1-Setup-arm64.exe` | ARM 기반 Windows PC (Snapdragon 등) |
-| `DeepImage-Viewer-1.0.1-Portable-*.zip` | 설치 없이 실행 (탐색기 썸네일 제외) |
+| `DeepImage-Viewer-1.0.2-Setup-x64.exe` | 일반 Windows PC (Intel / AMD) |
+| `DeepImage-Viewer-1.0.2-Setup-arm64.exe` | ARM 기반 Windows PC (Snapdragon 등) |
+| `DeepImage-Viewer-1.0.2-Portable-*.zip` | 설치 없이 실행 (탐색기 썸네일 제외) |
 
 설치는 현재 사용자 계정에만 진행되어 관리자 권한이 필요 없습니다. Windows 10 / 11.
 
@@ -20,6 +20,7 @@ Made by **DMIND** · dmind114@gmail.com
 
 - **이미지:** JPG, PNG, GIF(애니메이션), WebP, HEIC, AVIF, TIFF, BMP, SVG, PSD, TGA, RAW 등
 - **3D:** STL, 3MF, OBJ, PLY, glTF/GLB, FBX, STEP/STP, IGES/IGS, BREP, DAE, 3DS, AMF
+- **G-code:** 슬라이서가 넣은 미리보기 이미지 표시 (.gcode / .gco / .bgcode — PNG·JPG·QOI)
 - **보기:** 전체 보기 · 화면 꽉 차게 · 폭 맞춤 · 높이 맞춤 · 1:1 (선택 기억), 두 이미지 비교 모드
 - **표시:** 펜, 형광펜, 직선, 화살표, 사각형, 원, 모자이크, 마스크, 선택·이동, 색상·굵기
 - **편집:** 자르기, 크기 조절, 밝기·대비·색 보정, 회전·반전, 다른 형식으로 저장

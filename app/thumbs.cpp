@@ -65,7 +65,8 @@ bool renderThumbFile(const std::wstring& path, Kind kind, UINT size, ThumbResult
         return true;
     }
     const std::wstring e = extOf(path);
-    const bool shellCapable = !(e == L"svg" || e == L"tga" || e == L"psd" || e == L"ppm" || e == L"pgm" || e == L"pnm" || e == L"gif");
+    const bool shellCapable = !(e == L"svg" || e == L"tga" || e == L"psd" || e == L"ppm" || e == L"pgm" || e == L"pnm" || e == L"gif" ||
+                                 e == L"gcode" || e == L"gco" || e == L"bgcode");
     if (allowShell && shellCapable) {
         ComPtr<IShellItemImageFactory> f;
         if (SUCCEEDED(SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(&f)))) {

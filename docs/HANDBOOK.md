@@ -1,7 +1,7 @@
 # DeepImage Viewer — 개발 핸드북 (Claude 작업용)
 
 > 새 채팅에서 이 프로젝트를 이어받을 때 **가장 먼저 읽는 문서**. 사용자와 확정한 기능·디자인·빌드·배포 절차를 정리한다.
-> 마지막 갱신: 2026-11-01 · 현재 버전 **1.0.1**
+> 마지막 갱신: 2026-11-01 · 현재 버전 **1.0.2**
 
 ---
 
@@ -87,6 +87,15 @@ C++20, Windows 전용 API. Linux에서 **llvm-mingw**로 x64·ARM64 교차 빌�
 | Ctrl+R / Ctrl+Shift+R | 회전 | F11 | 전체 화면 |
 | Esc | 진행 중 작업(대화창·자르기·보정·표시·전체화면·비교) 취소, 없으면 **창 최소화** | T | 필름스트립 |
 
+### G-code (1.0.2)
+- `.gcode`/`.gco`/`.bgcode`는 **이미지 종류**로 취급: 슬라이서가 넣은 미리보기 중 **가장 큰 것**을 보여 준다(`app/image.cpp` `decodeGcode`).
+- 텍스트: `; thumbnail[_PNG|_JPG|_QOI] begin WxH len` … base64 … `; thumbnail… end` (앞 6MB, 없으면 끝 2MB 검색), Snapmaker `thumbnail: data:image/png;base64,`. 바이너리: Prusa `GCDE` 블록 type 5(PNG 0 / JPG 1 / QOI 2). QOI는 자체 디코더.
+- 미리보기 없으면 `load.gcode` 안내. 필름스트립 확장자 배지 표시, 탐색기 핸들러 CLSID `{E8E359B7-8AB6-4713-8956-BB7BAB759DDE}`(.gcode/.gco), `{E44C69BD-81E3-4D73-B040-7F5FF2ED4E1A}`(.bgcode). 툴패스 3D 렌더링은 아직 없음.
+- SVG는 D2D SVG로 보기·썸네일·탐색기 썸네일 모두 지원(Wine에서는 안 보임).
+
+### 정보 창
+- 버전 / 제작 **DMIND**(링크 → `https://www.godgok.com/3dmind/`) / 문의 메일 / **GitHub**(링크 → `https://github.com/XomPM/DeepImage-Viewer`). 링크는 강조색 + hover 밑줄 + 손 커서.
+
 ### 3D 보기
 - D3D11, 궤도/이동/줌, 그리드·그림자·모서리·와이어·바운딩박스, 축 기즈모, 업축 Z↑/Y↑ 칩.
 - 하단: 왼쪽 정보 표시, 가운데 조작 안내, 기즈모 왼쪽에 **"3D프린팅" 버튼**(printer 아이콘, 아이콘-글자 간격 약 9px) → `https://www.godgok.com/3dmind/`.
@@ -136,6 +145,7 @@ python3 package.py fonts        # → dist/
 - **Wine** (Kron4ek wine 11.19 amd64-wow64, `WINEPREFIX=/home/claude/wine/prefix`, `WINEDEBUG=-all`). D3D/WARP는 X 디스플레이가 필요 → `xvfb-run -a` 또는 `Xvfb :NN &` + `DISPLAY=:NN`. 화면 캡처는 `import -window root`.
   - Wine에는 D2D SVG가 없어 **아이콘이 안 보인다**(정상). `AssocQueryString` 쉘 확장도 `-`로 기록됨.
   - xvfb-run이 wineserver 때문에 안 끝날 수 있음 → 결과 파일 생성 확인 후 `pkill -f wineserver`.
+- G-code 샘플은 Python으로 만들 수 있다(PIL로 PNG/JPG, QOI는 RGBA 청크만으로 인코딩, bgcode는 `GCDE` + 블록 + CRC32).
 - 썸네일 워커 단독 테스트: `wine DeepImage.exe --thumbnail model.stl out.png 256`. 설정은 `wine reg add HKCU\Software\DMIND\DeepImageViewer /v ThumbColor ...`.
 - 설치 테스트: `wine DeepImage-Viewer-<ver>-Setup-x64.exe /quiet` → `reg query ...\Uninstall\DeepImageViewer`.
 - 실제 PC 확인은 컴퓨터 사용(권한 승인 필요)으로만 가능. 사용자에게 확인 범위를 정확히 말한다.
@@ -165,3 +175,4 @@ python3 package.py fonts        # → dist/
 
 - **1.0.0** (2026-10-30): 첫 공개. 이미지+3D 뷰어, 마크업, 편집, EXIF/히스토그램, 탐색기 썸네일, 설치기(x64/ARM64), 비교 모드, 맞춤 5종, 단축키 개편, 3D프린팅 버튼.
 - **1.0.1** (2026-11-01): 3MF 내장 썸네일 우선, 썸네일 디스크 캐시, 3D 썸네일 색상 설정, 탐색기 STL 수정, 아이콘 크기 버그 수정, 새 앱 아이콘(투명 배경 육면체 + DMIND 로고).
+- **1.0.2** (2026-11-01): G-code/bgcode 미리보기(보기·썸네일·탐색기), 정보 창 DMIND·GitHub 링크.
