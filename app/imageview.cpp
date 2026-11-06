@@ -36,11 +36,11 @@ float ImageView::modeScale(int m, bool initial) const {
     rotatedSize(w, h);
     if (w <= 0 || h <= 0) return 1;
     switch (m) {
-    case 1: return fitScale(); // whole image as large as the window allows (small images are enlarged)
+    case 1: return fitScale(); // "fill": as large as the (immersive) window allows, small images enlarged
     case 2: return std::max(0.001f, rw(vp) / w);
     case 3: return std::max(0.001f, rh(vp) / h);
     case 4: return 1.f;
-    default: { float f = fitScale(); return initial ? std::min(1.f, f) : f; }
+    default: return std::min(1.f, fitScale()); // "whole image": never enlarged past 100%
     }
 }
 void ImageView::fitCenter(float& cx, float& cy) const {

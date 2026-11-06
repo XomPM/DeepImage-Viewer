@@ -1,6 +1,7 @@
 // DeepImage Viewer — file handling, loading, editing actions
 // Copyright (c) DMIND <dmind114@gmail.com>. MIT License.
 #include "app.h"
+#include "archive.h"
 #include "i18n.h"
 #include "settings.h"
 #include <dwmapi.h>
@@ -40,7 +41,7 @@ void App::toast(const std::wstring& t, bool err) {
 }
 
 void App::updateTitle() {
-    std::wstring t = cur.path.empty() ? std::wstring(kAppName) : cur.name + L" — " + kAppName;
+    std::wstring t = cur.path.empty() ? std::wstring(kAppName) : cur.name + (container.empty() ? L"" : L" — " + fileName(container)) + L" — " + kAppName;
     SetWindowTextW(hwnd, t.c_str());
 }
 
@@ -48,13 +49,14 @@ void App::updateTitle() {
 void App::openDialog() {
     ComPtr<IFileOpenDialog> d;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&d)))) return;
-    std::wstring all, imgs, mdls;
+    std::wstring all, imgs, mdls, arcs;
     for (auto& e : imageExts()) { imgs += (imgs.empty() ? L"*." : L";*.") + e; }
     for (auto& e : modelExts()) { mdls += (mdls.empty() ? L"*." : L";*.") + e; }
-    all = imgs + L";" + mdls;
-    std::wstring nAll = T("filter.all"), nImg = T("filter.images"), nMdl = T("filter.models"), nAny = T("filter.any");
-    COMDLG_FILTERSPEC spec[] = {{nAll.c_str(), all.c_str()}, {nImg.c_str(), imgs.c_str()}, {nMdl.c_str(), mdls.c_str()}, {nAny.c_str(), L"*.*"}};
-    d->SetFileTypes(4, spec);
+    for (auto& e : arc::archiveExts()) { arcs += (arcs.empty() ? L"*." : L";*.") + e; }
+    all = imgs + L";" + mdls + L";" + arcs;
+    std::wstring nAll = T("filter.all"), nImg = T("filter.images"), nMdl = T("filter.models"), nArc = T("filter.archives"), nAny = T("filter.any");
+    COMDLG_FILTERSPEC spec[] = {{nAll.c_str(), all.c_str()}, {nImg.c_str(), imgs.c_str()}, {nMdl.c_str(), mdls.c_str()}, {nArc.c_str(), arcs.c_str()}, {nAny.c_str(), L"*.*"}};
+    d->SetFileTypes(5, spec);
     if (!S.lastDir.empty()) {
         ComPtr<IShellItem> folder;
         if (SUCCEEDED(SHCreateItemFromParsingName(S.lastDir.c_str(), nullptr, IID_PPV_ARGS(&folder)))) d->SetFolder(folder.Get());
@@ -71,6 +73,7 @@ void App::openDialog() {
 
 void App::listFolder(const std::wstring& p) {
     files.clear();
+    container.clear();
     std::wstring dir = dirName(p);
     WIN32_FIND_DATAW fd;
     HANDLE h = FindFirstFileExW((dir + L"\\*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH);
@@ -96,6 +99,16 @@ void App::listFolder(const std::wstring& p) {
 void App::openPath(const std::wstring& raw) {
     wchar_t full[MAX_PATH * 4];
     std::wstring p = GetFullPathNameW(raw.c_str(), (DWORD)std::size(full), full, nullptr) ? full : raw;
+    while (p.size() > 3 && (p.back() == L'\\' || p.back() == L'/')) p.pop_back();
+    DWORD attr = GetFileAttributesW(p.c_str());
+    if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) {
+        if (!openContainer(p)) toast(T("folder.empty"), true);
+        return;
+    }
+    if (arc::isArchiveExt(extOf(p))) {
+        if (!openArchive(p)) toast(T("archive.empty"), true);
+        return;
+    }
     listFolder(p);
     int i = -1;
     for (size_t k = 0; k < files.size(); ++k) if (!_wcsicmp(files[k].path.c_str(), p.c_str())) { i = (int)k; break; }
@@ -120,8 +133,82 @@ void App::openPath(const std::wstring& raw) {
     show(i, true);
 }
 
-void App::refreshFolder() {
+// an archive behaves like a folder: its images (and 3D models) become the file list
+bool App::openArchive(const std::wstring& archive) {
+    std::vector<arc::Item> items;
+    if (!arc::list(archive, items) || items.empty()) return false;
+    files.clear();
+    for (auto& it : items) {
+        FileEntry e;
+        e.path = it.path;
+        e.name = it.name;
+        e.ext = extOf(it.name);
+        e.kind = kindOfExt(e.ext);
+        e.size = it.size;
+        e.mtime = it.mtime;
+        files.push_back(std::move(e));
+    }
+    container = archive;
+    S.lastDir = dirName(archive);
+    thumbs.cancelAll();
+    stripUser = false;
+    show(0, true);
+    return true;
+}
+
+// folder or archive: open its first viewable file; false when there is nothing to show
+bool App::openContainer(const std::wstring& c) {
+    if (arc::isArchiveExt(extOf(c)) && !(GetFileAttributesW(c.c_str()) & FILE_ATTRIBUTE_DIRECTORY)) return openArchive(c);
+    std::vector<FileEntry> keep;
+    keep.swap(files);
+    std::wstring keepC = container;
+    listFolder(c + L"\\*");
+    if (files.empty()) { files.swap(keep); container = keepC; return false; }
+    S.lastDir = c;
+    thumbs.cancelAll();
+    stripUser = false;
+    show(0, true);
+    return true;
+}
+
+std::wstring App::homeDir() const { return container.empty() ? dirName(cur.path) : dirName(container); }
+
+// PgUp / PgDn: previous / next sibling folder (archives count as folders) that has something to show
+void App::goFolder(int d) {
     if (cur.path.empty()) return;
+    const std::wstring here = container.empty() ? dirName(cur.path) : container;
+    const std::wstring parent = dirName(here);
+    if (parent.empty() || !_wcsicmp(parent.c_str(), here.c_str())) { toast(T(d > 0 ? "folder.last" : "folder.first")); return; }
+    std::vector<std::wstring> names;
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileExW((parent + L"\\*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
+            if (!wcscmp(fd.cFileName, L".") || !wcscmp(fd.cFileName, L"..")) continue;
+            const bool dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            if (dir || arc::isArchiveExt(extOf(fd.cFileName))) names.push_back(fd.cFileName);
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    std::sort(names.begin(), names.end(), [](const std::wstring& a, const std::wstring& b) { return StrCmpLogicalW(a.c_str(), b.c_str()) < 0; });
+    const std::wstring me = fileName(here);
+    int at = -1;
+    for (size_t k = 0; k < names.size(); ++k) if (!_wcsicmp(names[k].c_str(), me.c_str())) at = (int)k;
+    if (at < 0) {
+        // not listed (e.g. hidden): start from where it would sort
+        at = (int)(std::lower_bound(names.begin(), names.end(), me, [](const std::wstring& a, const std::wstring& b) { return StrCmpLogicalW(a.c_str(), b.c_str()) < 0; }) - names.begin());
+        if (d > 0) --at;
+    }
+    for (int k = at + d; k >= 0 && k < (int)names.size(); k += d) {
+        std::wstring c = parent + (parent.back() == L'\\' ? L"" : L"\\") + names[k];
+        if (openContainer(c)) { toast(names[k]); return; }
+    }
+    toast(T(d > 0 ? "folder.last" : "folder.first"));
+}
+
+void App::refreshFolder() {
+    if (cur.path.empty() || !container.empty()) return;
     std::wstring p = cur.path;
     listFolder(p);
     for (size_t k = 0; k < files.size(); ++k) if (!_wcsicmp(files[k].path.c_str(), p.c_str())) index = (int)k;
@@ -192,6 +279,7 @@ void App::show(int i, bool force) {
             DvModel* m = nullptr;
             std::string err;
             if (!ML.ensure()) err = "dvmodel.dll";
+            else if (!arc::materialize(path)) err = "load.failed";
             else {
                 std::lock_guard<std::mutex> g(ML.lock);
                 char e[512] = {};
@@ -394,6 +482,8 @@ void App::setFitMode(int m) {
     S.fitMode = m;
     S.save();
     view.mode = viewR.mode = m;
+    if (immersive()) { DWORD now = GetTickCount(); barRv.poke(now); stripRv.poke(now); armChromeTimer(); }
+    layout(); // "fill" changes the viewport itself
     eachView([](ImageView& v, const D2D1_RECT_F&) { v.fit(true); });
     ensureTimer();
     requestPaint();
@@ -541,7 +631,7 @@ void App::saveAs() {
     d->SetFileName(name.c_str());
     d->SetDefaultExtension(L"png");
     ComPtr<IShellItem> folder;
-    if (SUCCEEDED(SHCreateItemFromParsingName(dirName(cur.path).c_str(), nullptr, IID_PPV_ARGS(&folder)))) d->SetFolder(folder.Get());
+    if (SUCCEEDED(SHCreateItemFromParsingName(homeDir().c_str(), nullptr, IID_PPV_ARGS(&folder)))) d->SetFolder(folder.Get());
     // quality + metadata options in the dialog itself
     ComPtr<IFileDialogCustomize> cz;
     if (SUCCEEDED(d.As(&cz))) {
@@ -597,7 +687,7 @@ void App::saveScreenshot() {
     std::wstring stem = cur.name.substr(0, cur.name.find_last_of(L'.')) + L"_view";
     d->SetFileName(stem.c_str());
     ComPtr<IShellItem> folder;
-    if (SUCCEEDED(SHCreateItemFromParsingName(dirName(cur.path).c_str(), nullptr, IID_PPV_ARGS(&folder)))) d->SetFolder(folder.Get());
+    if (SUCCEEDED(SHCreateItemFromParsingName(homeDir().c_str(), nullptr, IID_PPV_ARGS(&folder)))) d->SetFolder(folder.Get());
     if (FAILED(d->Show(hwnd))) return;
     ComPtr<IShellItem> it;
     PWSTR p = nullptr;

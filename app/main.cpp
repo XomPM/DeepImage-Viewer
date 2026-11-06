@@ -1,5 +1,7 @@
 // DeepImage Viewer — entry point
 // Copyright (c) DMIND <dmind114@gmail.com>. MIT License.
+#include "archive.h"
+#include <thread>
 #include "app.h"
 #include "i18n.h"
 #include "settings.h"
@@ -59,11 +61,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     if (settings) A.openSettings();
     A.requestPaint();
 
+    std::thread([] { arc::cleanup(false); }).detach(); // leftovers of earlier sessions
+
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+    arc::cleanup(true); // this session's extracted archive entries
     OleUninitialize();
     return 0;
 }

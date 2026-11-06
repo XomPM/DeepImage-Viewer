@@ -1,6 +1,7 @@
 // DeepImage Viewer — EXIF + histogram
 // Copyright (c) DMIND <dmind114@gmail.com>. MIT License.
 #include "info.h"
+#include "archive.h"
 #include "gfx.h"
 #include "i18n.h"
 #include <propkey.h>
@@ -65,6 +66,7 @@ bool getDms(IPropertyStore* ps, const PROPERTYKEY& k, double& deg) {
 ExifInfo readExif(const std::wstring& path) {
     ExifInfo e;
     e.loaded = true;
+    if (!arc::materialize(path)) return e;
     ComPtr<IPropertyStore> ps;
     if (FAILED(SHGetPropertyStoreFromParsingName(path.c_str(), nullptr, GPS_BESTEFFORT, IID_PPV_ARGS(&ps)))) return e;
     std::wstring s;

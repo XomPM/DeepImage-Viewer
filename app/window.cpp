@@ -235,6 +235,11 @@ LRESULT App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         } else if (w == 2) {
             KillTimer(h, 2);
             if (U.tooltipDue()) requestPaint();
+        } else if (w == 3) {
+            KillTimer(h, 3);
+            armChromeTimer();
+            ensureTimer(); // runs the fade-out
+            requestPaint();
         }
         return 0;
     case WM_SETCURSOR:
@@ -284,12 +289,18 @@ LRESULT App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         onMouseMove(dipX(l), dipY(l), w);
         return 0;
     }
-    case WM_MOUSELEAVE:
+    case WM_MOUSELEAVE: {
+        const DWORD now = GetTickCount();
+        navRv.hide(now);
+        barRv.hide(now);
+        stripRv.hide(now);
+        ensureTimer();
         mouseInViewport = false;
         U.mouseMove(-100, -100);
         if (capHover) capHover = 0;
         requestPaint();
         return 0;
+    }
     case WM_MOUSEWHEEL: case WM_MOUSEHWHEEL: {
         POINT pt{GET_X_LPARAM(l), GET_Y_LPARAM(l)};
         ScreenToClient(h, &pt);
@@ -360,7 +371,40 @@ LRESULT App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     return DefWindowProcW(h, m, w, l);
 }
 
+bool App::immersive() const {
+    return mode == Mode::Image && S.fitMode == 1 && !compare && !annot && !editMode && panel == EditPanel::None && !fullscreen;
+}
+
+// show the auto-hiding chrome when the pointer comes near it
+void App::pokeChrome(float x, float y) {
+    if (mode == Mode::Empty || modal.kind) return;
+    const DWORD now = GetTickCount();
+    const bool before = navRv.alpha(now) > 0 || barRv.alpha(now) > 0 || stripRv.alpha(now) > 0;
+    if (files.size() > 1 && inside(rcViewport, x, y) && (x < rcViewport.left + 120 || x > rcViewport.right - 120)) navRv.poke(now);
+    if (immersive()) {
+        if (y < rcViewport.top + 84) barRv.poke(now);
+        if (rh(rcStrip) > 0 && y > rcStrip.top - 24) stripRv.poke(now);
+    }
+    armChromeTimer();
+    const bool after = navRv.alpha(now) > 0 || barRv.alpha(now) > 0 || stripRv.alpha(now) > 0;
+    if (before != after || navRv.animating(now) || barRv.animating(now) || stripRv.animating(now)) { requestPaint(); ensureTimer(); }
+}
+
+// wake up when the next piece of chrome should start fading out
+void App::armChromeTimer() {
+    const DWORD now = GetTickCount();
+    DWORD due = 0;
+    for (const Reveal* r : {&navRv, &barRv, &stripRv})
+        if (r->on && r->until > now && (!due || r->until - now < due)) due = r->until - now;
+    if (due) SetTimer(hwnd, 3, due + 5, nullptr);
+    else KillTimer(hwnd, 3);
+}
+
 bool App::needsAnimation() {
+    {
+        const DWORD now = GetTickCount();
+        if (navRv.animating(now) || barRv.animating(now) || stripRv.animating(now)) return true;
+    }
     if (view.animating() || (compare && viewR.animating())) return true;
     if (compare && (loadingR || docR.frameCount() > 1)) return true;
     if (mode == Mode::Model && mv.animating()) return true;
@@ -445,6 +489,7 @@ void App::onMouseMove(float x, float y, WPARAM keys) {
     if (redraw) { SetTimer(hwnd, 2, 460, nullptr); }
     bool inVp = inside(rcViewport, x, y);
     if (inVp != mouseInViewport) { mouseInViewport = inVp; redraw = true; }
+    if (drag == DragKind::None) pokeChrome(x, y);
     float dx = x - lastX, dy = y - lastY;
     lastX = x;
     lastY = y;
@@ -636,8 +681,10 @@ bool App::onKey(UINT vk, bool down) {
     }
     if (editMode && vk == VK_ESCAPE) { toggleEdit(0); return done(); }
     switch (vk) {
-    case VK_RIGHT: case VK_NEXT: guardUnsaved([this] { go(1); }); return done();
-    case VK_LEFT: case VK_PRIOR: guardUnsaved([this] { go(-1); }); return done();
+    case VK_RIGHT: guardUnsaved([this] { go(1); }); return done();
+    case VK_LEFT: guardUnsaved([this] { go(-1); }); return done();
+    case VK_NEXT: if (!compare) guardUnsaved([this] { goFolder(1); }); return done();
+    case VK_PRIOR: if (!compare) guardUnsaved([this] { goFolder(-1); }); return done();
     case VK_HOME: if (!files.empty()) guardUnsaved([this] { show(0); }); return done();
     case VK_END: if (!files.empty()) guardUnsaved([this] { show((int)files.size() - 1); }); return done();
     case VK_OEM_PLUS: case VK_ADD: if (img) zoomViews(1.25f, cx, cy, true); return done();

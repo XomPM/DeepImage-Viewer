@@ -1,6 +1,7 @@
 // DeepImage Viewer — image decoding and GPU upload
 // Copyright (c) DMIND <dmind114@gmail.com>. MIT License.
 #include "image.h"
+#include "archive.h"
 #include "gfx.h"
 #include <shlwapi.h>
 #include <propvarutil.h>
@@ -460,6 +461,7 @@ bool decodeImageFile(const std::wstring& path, DecodedImage& out, std::string& e
     ComInit com;
     out = DecodedImage{};
     err = "load.failed";
+    if (!arc::materialize(path)) return false;
     const std::wstring ext = extOf(path);
     if (ext == L"svg") return decodeSvg(path, out, maxSvgEdge);
     ComPtr<IWICImagingFactory> wic;

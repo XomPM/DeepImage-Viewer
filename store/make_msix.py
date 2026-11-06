@@ -48,7 +48,9 @@ def fta(name, display, exts, clsid=None):
             f'<uap:DisplayName>{display}</uap:DisplayName><uap:Logo>Assets\\FileLogo.png</uap:Logo>'
             f'<uap:SupportedFileTypes>{ft}</uap:SupportedFileTypes>{th}</uap:FileTypeAssociation></uap:Extension>')
 
-exts_xml = [fta('images', 'DeepImage Viewer Image', images), fta('gltf', 'glTF 3D Model', models_open_only)]
+archives = ['.zip', '.cbz', '.tar', '.cbt']  # browsed like folders
+exts_xml = [fta('images', 'DeepImage Viewer Image', images), fta('gltf', 'glTF 3D Model', models_open_only),
+            fta('archives', 'DeepImage Viewer Archive', archives)]
 classes = []
 for clsid, exts, name, req in shell_formats:
     if req: continue

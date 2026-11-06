@@ -239,6 +239,8 @@ std::vector<std::wstring> imageAssocExts() {
     return {L"jpg", L"jpeg", L"jpe", L"jfif", L"png", L"apng", L"gif", L"webp", L"bmp", L"dib", L"ico", L"tif", L"tiff", L"svg", L"avif",
             L"heic", L"heif", L"jxr", L"wdp", L"dds", L"tga", L"psd", L"ppm", L"pgm", L"pnm", L"dng", L"cr2", L"cr3", L"nef", L"arw", L"orf", L"rw2", L"raf", L"gcode", L"gco", L"bgcode"};
 }
+// archives open like folders (Open with only; Explorer's own zip handling stays the default)
+std::vector<std::wstring> archiveAssocExts() { return {L"zip", L"cbz", L"tar", L"cbt"}; }
 std::vector<std::wstring> modelAssocExts() {
     return {L"stl", L"3mf", L"obj", L"ply", L"gltf", L"glb", L"fbx", L"step", L"stp", L"iges", L"igs", L"brep", L"brp", L"dae", L"3ds", L"amf", L"off"};
 }
@@ -250,7 +252,8 @@ void registerApp(const std::wstring& dir, const Options& o) {
     const std::wstring C = L"Software\\Classes\\";
     // ProgIDs
     struct PI { const wchar_t* id; const wchar_t* name; int icon; } progs[] = {
-        {L"DeepImageViewer.Image", L"DeepImage Viewer Image", 0}, {L"DeepImageViewer.Model", L"DeepImage Viewer 3D Model", 0}};
+        {L"DeepImageViewer.Image", L"DeepImage Viewer Image", 0}, {L"DeepImageViewer.Model", L"DeepImage Viewer 3D Model", 0},
+        {L"DeepImageViewer.Archive", L"DeepImage Viewer Archive", 0}};
     for (auto& p : progs) {
         regSet(H, C + p.id, nullptr, p.name);
         regSet(H, C + p.id + L"\\DefaultIcon", nullptr, L"\"" + exe + L"\",0");
@@ -272,6 +275,11 @@ void registerApp(const std::wstring& dir, const Options& o) {
             regSetNone(H, C + L"." + e + L"\\OpenWithProgids", L"DeepImageViewer.Image");
             regSetNone(H, app + L"\\SupportedTypes", (L"." + e).c_str());
             regSet(H, std::wstring(kCapKey) + L"\\FileAssociations", (L"." + e).c_str(), L"DeepImageViewer.Image");
+        }
+        for (auto& e : archiveAssocExts()) {
+            regSetNone(H, C + L"." + e + L"\\OpenWithProgids", L"DeepImageViewer.Archive");
+            regSetNone(H, app + L"\\SupportedTypes", (L"." + e).c_str());
+            regSet(H, std::wstring(kCapKey) + L"\\FileAssociations", (L"." + e).c_str(), L"DeepImageViewer.Archive");
         }
         for (auto& e : modelAssocExts()) {
             regSetNone(H, C + L"." + e + L"\\OpenWithProgids", L"DeepImageViewer.Model");
@@ -355,6 +363,8 @@ void unregisterApp() {
     for (auto& e : modelAssocExts()) { regDelValue(H, C + L"." + e + L"\\OpenWithProgids", L"DeepImageViewer.Model"); regPrune(C + L"." + e + L"\\OpenWithProgids"); }
     regDelTree(H, C + L"DeepImageViewer.Image");
     regDelTree(H, C + L"DeepImageViewer.Model");
+    for (auto& e : archiveAssocExts()) { regDelValue(H, C + L"." + e + L"\\OpenWithProgids", L"DeepImageViewer.Archive"); regPrune(C + L"." + e + L"\\OpenWithProgids"); }
+    regDelTree(H, C + L"DeepImageViewer.Archive");
     regDelTree(H, C + L"Applications\\DeepImage.exe");
     regDelValue(H, L"Software\\RegisteredApplications", L"DeepImage Viewer");
     regDelTree(H, L"Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\DeepImage.exe");

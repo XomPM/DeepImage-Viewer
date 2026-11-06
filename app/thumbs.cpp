@@ -2,6 +2,7 @@
 // Copyright (c) DMIND <dmind114@gmail.com>. MIT License.
 #include "thumbs.h"
 #include "image.h"
+#include "archive.h"
 #include "settings.h"
 #include "miniz.h"
 #include <shlobj.h>
@@ -54,6 +55,9 @@ static bool fromHBitmap(HBITMAP hb, ThumbResult& out) {
 
 bool renderThumbFile(const std::wstring& path, Kind kind, UINT size, ThumbResult& out, bool allowShell) {
     out.path = path;
+    const bool inArchive = !arc::archiveOf(path).empty();
+    if (inArchive && !arc::materialize(path)) return false;
+    if (inArchive) allowShell = false; // keep extracted temp files out of Windows' thumbnail cache
     if (kind == Kind::Model) {
         if (!ML.ensure()) return false;
         std::lock_guard<std::mutex> g(ML.lock);
@@ -116,7 +120,9 @@ std::wstring cacheDir() {
 // empty when the file cannot be stat'ed (then we do not cache)
 std::wstring cacheFile(const std::wstring& path, Kind kind) {
     WIN32_FILE_ATTRIBUTE_DATA fa;
-    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &fa) || cacheDir().empty()) return {};
+    // archive entries: the archive's own stamp (the virtual path already names the entry), so no extraction is needed
+    const std::wstring owner = arc::archiveOf(path);
+    if (!GetFileAttributesExW(owner.empty() ? path.c_str() : owner.c_str(), GetFileExInfoStandard, &fa) || cacheDir().empty()) return {};
     uint64_t h = 1469598103934665603ull;
     auto mix = [&](const void* d, size_t n) { for (size_t i = 0; i < n; ++i) { h ^= ((const uint8_t*)d)[i]; h *= 1099511628211ull; } };
     std::wstring lp = path;

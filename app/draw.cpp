@@ -18,6 +18,14 @@ bool sameColor(D2D1_COLOR_F a, uint32_t rgb) {
     auto b = rgba(rgb);
     return std::fabs(a.r - b.r) < 0.01f && std::fabs(a.g - b.g) < 0.01f && std::fabs(a.b - b.b) < 0.01f;
 }
+// draws everything in scope at reduced opacity (auto-hiding chrome)
+struct Fade {
+    bool on;
+    explicit Fade(float a) : on(a < .999f) {
+        if (on) G.dc->PushLayer(D2D1::LayerParameters1(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), a), nullptr);
+    }
+    ~Fade() { if (on) G.dc->PopLayer(); }
+};
 uint32_t toRgb(D2D1_COLOR_F c) { return ((uint32_t)(c.r * 255) << 16) | ((uint32_t)(c.g * 255) << 8) | (uint32_t)(c.b * 255); }
 } // namespace
 
@@ -31,25 +39,31 @@ void App::layout() {
         if (panel == EditPanel::Adjust) side = 300;
         else if (S.infoPanel) side = 296;
     }
+    // immersive "fill" mode: the picture takes the whole window; toolbar and filmstrip float over it on demand
+    const bool imm = immersive();
+    const float vB = imm ? H : H - sH;
     rcTitle = R(0, 0, W, tH);
-    rcStage = R(0, tH, W, H - sH);
-    rcViewport = R(0, tH, W - side, H - sH);
-    rcSide = R(W - side, tH, W, H - sH);
+    rcStage = R(0, tH, W, vB);
+    rcViewport = R(0, tH, W - side, vB);
+    rcSide = R(W - side, tH, W, vB);
     rcStrip = R(0, H - sH, W, H);
-    view.padT = (fullscreen ? 12.f : 66.f);
-    view.padB = mode == Mode::Image && panel == EditPanel::Crop ? 76.f : 52.f;
-    view.padL = 72.f;
-    view.padR = 72.f;
+    // the side arrows auto-hide, so the picture may use the full width
+    view.padL = view.padR = 0;
+    if (imm) view.padT = view.padB = 0;
+    else {
+        view.padT = fullscreen ? 12.f : 66.f;
+        view.padB = mode == Mode::Image ? (panel == EditPanel::Crop ? 76.f : 12.f) : 52.f;
+    }
     if (compare && mode == Mode::Image) {
         float mid = std::round((rcViewport.left + rcViewport.right) / 2);
         rcPaneL = R(rcViewport.left, rcViewport.top, mid - 1, rcViewport.bottom);
         rcPaneR = R(mid + 1, rcViewport.top, rcViewport.right, rcViewport.bottom);
-        view.padR = 20.f;
+        view.padR = 12.f;
         view.padB = 58.f;
         viewR.padT = view.padT;
         viewR.padB = 58.f;
-        viewR.padL = 20.f;
-        viewR.padR = 72.f;
+        viewR.padL = 12.f;
+        viewR.padR = 0;
         view.setViewport(rcPaneL);
         viewR.setViewport(rcPaneR);
     } else {
@@ -198,7 +212,9 @@ void App::drawTitlebar() {
         std::wstring ext = cur.ext;
         for (auto& c : ext) c = (wchar_t)towupper(c);
         std::wstring count = Tf("count", {{L"i", std::to_wstring(index + 1)}, {L"n", std::to_wstring(files.size())}});
-        float pw = G.textWidth(ext, 10, 700) + 12, nw = std::min(G.textWidth(cur.name, 13, 600), W * 0.32f), cw = G.textWidth(count, 12, 400);
+        // inside an archive: "book.cbz › page01.jpg"
+        const std::wstring shown = container.empty() ? cur.name : fileName(container) + L"  \u203A  " + cur.name;
+        float pw = G.textWidth(ext, 10, 700) + 12, nw = std::min(G.textWidth(shown, 13, 600), W * 0.38f), cw = G.textWidth(count, 12, 400);
         bool dirty = editDirty || markup.dirty(cur.path);
         float total = pw + 9 + nw + 9 + cw + (dirty ? 16 : 0);
         float cxp = W / 2 - total / 2;
@@ -206,7 +222,7 @@ void App::drawTitlebar() {
         D2D1_RECT_F pill = RW(cxp, 13.5f, pw, 17);
         G.fill(pill, P.accentSoft, 4);
         G.text(ext, pill, 10, P.accent, 700, AC);
-        G.textEllipsis(cur.name, RW(cxp + pw + 9, 0, nw + 2, 44), 13, active ? P.text : P.text2, 600);
+        G.textEllipsis(shown, RW(cxp + pw + 9, 0, nw + 2, 44), 13, active ? P.text : P.text2, 600);
         G.text(count, RW(cxp + pw + 18 + nw, 0, cw + 4, 44), 12, P.text3);
         if (dirty) G.circle(cxp + total - 4, 22, 3.5f, P.accent);
     }
@@ -564,6 +580,9 @@ void App::toolbar(uint64_t id, const std::vector<TbItem>& items, float cx, float
 void App::drawToolbars() {
     const float cx = cxOf(rcViewport), top = rcViewport.top + 14;
     if (fullscreen && !mouseInViewport) return;
+    const float fa = immersive() ? barRv.alpha(GetTickCount()) : 1.f;
+    if (fa <= 0) return;
+    Fade fade(fa);
     if (mode == Mode::Image && doc.loaded()) {
         const float vcx = cxOf(rcViewport), vcy = cyOf(rcViewport);
         if (annot) {
@@ -796,15 +815,16 @@ void App::drawInfoPanel() {
     float bw = (rw(r) - 36 - 6) / 2;
     U.textButton(hid("info.show"), RW(x, r.bottom - 50, bw, 34), T("info.showFolder"), [this] {
         if (cur.path.empty()) return;
-        PIDLIST_ABSOLUTE pidl = ILCreateFromPathW(cur.path.c_str());
+        PIDLIST_ABSOLUTE pidl = ILCreateFromPathW((container.empty() ? cur.path : container).c_str());
         if (pidl) { SHOpenFolderAndSelectItems(pidl, 0, nullptr, 0); ILFree(pidl); }
     }, false, "folder");
     U.textButton(hid("info.copy"), RW(x + bw + 6, r.bottom - 50, bw, 34), T("info.copyPath"), [this] {
         if (cur.path.empty() || !OpenClipboard(hwnd)) return;
         EmptyClipboard();
-        size_t bytes = (cur.path.size() + 1) * 2;
+        const std::wstring cp = container.empty() ? cur.path : container;
+        size_t bytes = (cp.size() + 1) * 2;
         HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, bytes);
-        if (h) { memcpy(GlobalLock(h), cur.path.c_str(), bytes); GlobalUnlock(h); SetClipboardData(CF_UNICODETEXT, h); }
+        if (h) { memcpy(GlobalLock(h), cp.c_str(), bytes); GlobalUnlock(h); SetClipboardData(CF_UNICODETEXT, h); }
         CloseClipboard();
         toast(T("path.copied"));
     }, false, "copy");
@@ -843,7 +863,11 @@ void App::drawAdjustPanel() {
 
 // ======================================================================== filmstrip
 void App::drawFilmstrip() {
+    stripHits.clear();
     if (rh(rcStrip) <= 0 || files.empty()) return;
+    const float fa = immersive() ? stripRv.alpha(GetTickCount()) : 1.f;
+    if (fa <= 0) return;
+    Fade fade(fa);
     G.fill(rcStrip, P.bg);
     G.line(0, rcStrip.top + .5f, G.W(), rcStrip.top + .5f, P.line);
     const float item = 68, gap = 6, step = item + gap;
@@ -966,7 +990,10 @@ void App::drawStatus() {
 }
 
 void App::drawNav() {
-    if (!mouseInViewport || annot || panel == EditPanel::Crop || files.size() < 2) return;
+    if (annot || panel == EditPanel::Crop || files.size() < 2) return;
+    const float fa = navRv.alpha(GetTickCount());
+    if (fa <= 0) return;
+    Fade fade(fa);
     auto arrow = [&](bool next) {
         bool ok = next ? index < (int)files.size() - 1 : index > 0;
         if (!ok) return;

@@ -44,6 +44,7 @@ public:
 
     // ---------------------------------------------------------------- state
     std::vector<FileEntry> files;
+    std::wstring container; // archive being browsed like a folder ("" = ordinary folder)
     int index = -1;
     FileEntry cur;
     Mode mode = Mode::Empty;
@@ -112,6 +113,22 @@ public:
     bool dropHover = false;
     bool mouseInViewport = false;
     float infoScroll = 0;
+    // auto-hiding chrome: side arrows always; toolbar + filmstrip in the immersive "fill" mode
+    struct Reveal {
+        DWORD shown = 0, until = 0;
+        bool on = false;
+        void poke(DWORD now, DWORD ms = 3000) { if (!on || now >= until) shown = now; on = true; until = now + ms; }
+        void hide(DWORD now) { if (on && until > now) until = now; }
+        float alpha(DWORD now) const {
+            if (!on) return 0;
+            if (now < until) return std::min(1.f, (now - shown) / 140.f);
+            return now - until < 260 ? 1.f - (now - until) / 260.f : 0.f;
+        }
+        bool animating(DWORD now) const { return on && ((now < until && now - shown < 140) || (now >= until && now - until < 260)); }
+    } navRv, barRv, stripRv;
+    bool immersive() const;
+    void pokeChrome(float x, float y);
+    void armChromeTimer();
 
     // caption buttons (custom title bar)
     int capHover = 0, capPress = 0;
@@ -178,6 +195,10 @@ public:
     void openDialog();
     void openPath(const std::wstring& p);
     void listFolder(const std::wstring& p);
+    bool openArchive(const std::wstring& archive);
+    bool openContainer(const std::wstring& c);
+    void goFolder(int d);
+    std::wstring homeDir() const; // folder that holds the current file (or its archive)
     void show(int i, bool force = false);
     void go(int d);
     void onImageDecoded();
