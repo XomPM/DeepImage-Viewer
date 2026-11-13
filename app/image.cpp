@@ -60,24 +60,6 @@ int readOrientation(IWICBitmapFrameDecode* f) {
     return 1;
 }
 
-ComPtr<IWICBitmapSource> orient(IWICImagingFactory* wic, IWICBitmapSource* src, int o) {
-    ComPtr<IWICBitmapSource> cur = src;
-    auto apply = [&](WICBitmapTransformOptions t) {
-        ComPtr<IWICBitmapFlipRotator> r;
-        if (SUCCEEDED(wic->CreateBitmapFlipRotator(&r)) && SUCCEEDED(r->Initialize(cur.Get(), t))) cur = r;
-    };
-    switch (o) {
-    case 2: apply(WICBitmapTransformFlipHorizontal); break;
-    case 3: apply(WICBitmapTransformRotate180); break;
-    case 4: apply(WICBitmapTransformFlipVertical); break;
-    case 5: apply(WICBitmapTransformRotate90); apply(WICBitmapTransformFlipHorizontal); break;
-    case 6: apply(WICBitmapTransformRotate90); break;
-    case 7: apply(WICBitmapTransformRotate270); apply(WICBitmapTransformFlipHorizontal); break;
-    case 8: apply(WICBitmapTransformRotate270); break;
-    }
-    return cur;
-}
-
 ComPtr<IWICBitmap> toPbgra(IWICImagingFactory* wic, IWICBitmapSource* src) {
     ComPtr<IWICFormatConverter> conv;
     ComPtr<IWICBitmap> bmp;
@@ -504,13 +486,53 @@ bool decodeImageFile(const std::wstring& path, DecodedImage& out, std::string& e
     if (SUCCEEDED(wic->CreateComponentInfo(pf, &ci)) && SUCCEEDED(ci.As(&pfi))) pfi->GetBitsPerPixel(&out.bitDepth);
     f->GetResolution(&out.dpiX, &out.dpiY);
     out.orientation = readOrientation(f.Get());
-    auto oriented = orient(wic.Get(), f.Get(), out.orientation);
-    auto bmp = toPbgra(wic.Get(), oriented.Get());
+    auto bmp = applyOrientation(wic.Get(), toPbgra(wic.Get(), f.Get()).Get(), out.orientation);
     if (!bmp) return false;
     bmp->GetSize(&out.width, &out.height);
     out.frames.push_back(bmp);
     out.delays.push_back(0);
     return true;
+}
+
+// EXIF orientation applied to already-decoded 32bpp pixels, in memory.
+// (IWICBitmapFlipRotator on a decoder reads pixel by pixel while JPEG decodes line by line, so a
+// 90-degree turn re-decodes the file over and over: phone photos never finished loading.)
+ComPtr<IWICBitmap> applyOrientation(IWICImagingFactory* wic, IWICBitmap* src, int o) {
+    if (!src || o < 2 || o > 8) return src;
+    UINT W = 0, H = 0;
+    src->GetSize(&W, &H);
+    const bool swap = o >= 5;
+    const UINT ow = swap ? H : W, oh = swap ? W : H;
+    WICPixelFormatGUID pf{};
+    src->GetPixelFormat(&pf);
+    ComPtr<IWICBitmap> dst;
+    if (FAILED(wic->CreateBitmap(ow, oh, pf, WICBitmapCacheOnLoad, &dst))) return nullptr;
+    WICRect rs{0, 0, (INT)W, (INT)H}, rd{0, 0, (INT)ow, (INT)oh};
+    ComPtr<IWICBitmapLock> ls, ld;
+    if (FAILED(src->Lock(&rs, WICBitmapLockRead, &ls)) || FAILED(dst->Lock(&rd, WICBitmapLockWrite, &ld))) return nullptr;
+    UINT ss = 0, ds = 0, sz = 0;
+    BYTE *sp = nullptr, *dp = nullptr;
+    ls->GetStride(&ss);
+    ld->GetStride(&ds);
+    ls->GetDataPointer(&sz, &sp);
+    ld->GetDataPointer(&sz, &dp);
+    if (!sp || !dp) return nullptr;
+    auto at = [&](UINT x, UINT y) { return *(const uint32_t*)(sp + (size_t)y * ss + (size_t)x * 4); };
+    for (UINT y = 0; y < oh; ++y) {
+        uint32_t* row = (uint32_t*)(dp + (size_t)y * ds);
+        for (UINT x = 0; x < ow; ++x) {
+            switch (o) {
+            case 2: row[x] = at(W - 1 - x, y); break;         // mirror
+            case 3: row[x] = at(W - 1 - x, H - 1 - y); break; // 180
+            case 4: row[x] = at(x, H - 1 - y); break;         // flip vertical
+            case 5: row[x] = at(y, x); break;                 // transpose
+            case 6: row[x] = at(y, H - 1 - x); break;         // 90 clockwise
+            case 7: row[x] = at(W - 1 - y, H - 1 - x); break; // transverse
+            case 8: row[x] = at(W - 1 - y, x); break;         // 90 counter-clockwise
+            }
+        }
+    }
+    return dst;
 }
 
 // ======================================================================== ImageDoc

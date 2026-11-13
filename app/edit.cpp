@@ -61,19 +61,17 @@ bool Effects::build(const Adjust& a) {
 }
 
 ComPtr<IWICBitmap> bakeOrientation(IWICBitmap* src, int rot, float fx, float fy) {
-    ComPtr<IWICBitmapSource> cur = src;
-    auto apply = [&](WICBitmapTransformOptions t) {
-        ComPtr<IWICBitmapFlipRotator> r;
-        if (SUCCEEDED(G.wic->CreateBitmapFlipRotator(&r)) && SUCCEEDED(r->Initialize(cur.Get(), t))) cur = r;
-    };
-    if (fx < 0) apply(WICBitmapTransformFlipHorizontal);
-    if (fy < 0) apply(WICBitmapTransformFlipVertical);
-    if (rot == 90) apply(WICBitmapTransformRotate90);
-    else if (rot == 180) apply(WICBitmapTransformRotate180);
-    else if (rot == 270) apply(WICBitmapTransformRotate270);
-    ComPtr<IWICBitmap> out;
-    G.wic->CreateBitmapFromSource(cur.Get(), WICBitmapCacheOnLoad, &out);
-    return out;
+    // same in-memory transform as EXIF orientation (2 mirror, 4 flip, 6 = 90, 3 = 180, 8 = 270)
+    ComPtr<IWICBitmap> cur = src;
+    if (fx < 0 && cur) cur = applyOrientation(G.wic.Get(), cur.Get(), 2);
+    if (fy < 0 && cur) cur = applyOrientation(G.wic.Get(), cur.Get(), 4);
+    if (cur) cur = applyOrientation(G.wic.Get(), cur.Get(), rot == 90 ? 6 : rot == 180 ? 3 : rot == 270 ? 8 : 1);
+    if (cur.Get() == src) { // unchanged: still hand back a separate copy, as before
+        ComPtr<IWICBitmap> out;
+        G.wic->CreateBitmapFromSource(src, WICBitmapCacheOnLoad, &out);
+        return out;
+    }
+    return cur;
 }
 
 ComPtr<IWICBitmap> cropBitmap(IWICBitmap* src, UINT x, UINT y, UINT w, UINT h) {

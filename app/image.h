@@ -46,4 +46,7 @@ public:
 // draw() is called with the device context transform positioned for the current tile.
 ComPtr<IWICBitmap> renderToWic(UINT w, UINT h, const std::function<void(ID2D1DeviceContext*)>& draw, bool opaqueWhite = false);
 
+// EXIF orientation (2..8) applied to a 32bpp bitmap in memory; returns src for 1
+ComPtr<IWICBitmap> applyOrientation(IWICImagingFactory* wic, IWICBitmap* src, int exifOrientation);
+
 } // namespace dv

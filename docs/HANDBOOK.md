@@ -201,6 +201,7 @@ python3 package.py fonts        # → dist/
 - Creality Print의 32비트 전용 STL 핸들러가 ProgID에 걸려 64비트 탐색기에서 실패 → 우리 핸들러를 그 ProgID에도 등록.
 - Windows OPC API는 슬라이서 3MF를 거부할 수 있음 → miniz로 직접 읽기.
 - Wine 테스트: `LANG=C.UTF-8`이 없으면 한글 파일 이름 생성이 실패(코드 문제 아님). Xvfb + 자체 `inp.exe`(keybd_event/SetCursorPos)로 입력, 화면은 한 단계 늦게 갱신됨.
+- **EXIF 회전에 `IWICBitmapFlipRotator`를 디코더에 직접 연결 금지** (1.0.4): 픽셀 단위로 요청 → JPEG는 줄 단위 해독이라 n² 동작, 휴대폰 사진(가로 저장 + 방향 6)이 "불러오는 중"에서 영원히 멈춤. 해독(`toPbgra`) 후 `applyOrientation`(메모리 회전)으로 처리. Wine의 FlipRotator는 이 문제가 없어 **Wine에서는 재현 안 됨**.
 - 설치 파일을 같은 이름으로 덮어쓰면 사용자가 예전 빌드를 설치했을 수 있다 → 보고 시 "이번 파일로 다시 설치" 명시.
 
 ## 8. 버전 기록
@@ -209,3 +210,4 @@ python3 package.py fonts        # → dist/
 - **1.0.1** (2026-11-01): 3MF 내장 썸네일 우선, 썸네일 디스크 캐시, 3D 썸네일 색상 설정, 탐색기 STL 수정, 아이콘 크기 버그 수정, 새 앱 아이콘(투명 배경 육면체 + DMIND 로고).
 - **1.0.2** (2026-11-01): G-code/bgcode 미리보기(보기·썸네일·탐색기), 정보 창 DMIND·GitHub 링크, 탐색기 썸네일 문제 해결 안내서·진단 도구.
 - **1.0.3** (2026-11-07): 압축 파일(zip/cbz/tar/cbt) 보기, PgUp/PgDn 폴더 이동, 몰입 보기(화면 꽉 차게), 좌우 여백 제거 + 이동 버튼 자동 숨김, 전체 보기는 100% 이하. GitHub v1.0.3 릴리스 완료(사용자 release.cmd). Store: 1.0.2 게시 확인 후 2026-11-07 Submission 2로 1.0.3 MSIX 제출(인증 중). MSIX 업로드는 임시 브랜치 `store-upload` → raw URL fetch → DataTransfer 주입(중복 행이 '분석 중'에 멈추면 Cancel 후 새로고침 → 저장). 이 세션에서는 브랜치 삭제가 403으로 막힘.
+- **1.0.4** (2026-11-13): 휴대폰 사진(EXIF 회전) 로딩 멈춤 수정 — 메모리 회전(`applyOrientation`), 썸네일·회전 저장도 같이 빨라짐.
