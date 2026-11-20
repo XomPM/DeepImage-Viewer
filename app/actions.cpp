@@ -643,9 +643,12 @@ void App::slideStep() {
     if (loading || loadingR) return; // still showing the last one: try again on the next tick
     auto nextWrap = [this](int from) { int k = nextImage(from, 1); return k >= 0 ? k : nextImage(-1, 1); };
     if (compare && indexR >= 0) {
-        // each pane moves to its own next image
-        int l = nextWrap(index), r = nextWrap(indexR);
-        if (l < 0 || r < 0) return;
+        // two at a time, like the arrow key: [L R] -> [R+1 R+2]; at the end [.. last-1 last], then back to the first two
+        const int hi = std::max(index, indexR);
+        int l = nextImage(hi, 1), r = -1;
+        if (l < 0) { l = nextImage(-1, 1); r = l >= 0 ? nextImage(l, 1) : -1; }
+        else if ((r = nextImage(l, 1)) < 0) { r = l; l = hi; }
+        if (l < 0 || r < 0 || l == r) return;
         show(l);
         showRight(r);
     } else show(index + 1 < (int)files.size() ? index + 1 : 0);
