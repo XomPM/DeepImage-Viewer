@@ -15,6 +15,8 @@ struct Settings {
     uint32_t thumbColor = 0;   // 0xRRGGBB | 0x1000000 when set; 0 = built-in grey
     bool thumbColorAll = false;
     int fitMode = 0;      // 0 whole, 1 fill, 2 width, 3 height, 4 actual size
+    int slideDelay = 3;   // slideshow seconds per image
+    bool pinChrome = false; // toolbar, filmstrip and side arrows never auto-hide
     WINDOWPLACEMENT placement{};
     bool hasPlacement = false;
     std::wstring lastDir;

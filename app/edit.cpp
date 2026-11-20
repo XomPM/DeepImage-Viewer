@@ -266,3 +266,35 @@ bool copyToClipboard(HWND hwnd, IWICBitmapSource* pixels) {
 }
 
 } // namespace dv
+
+namespace dv {
+ComPtr<IWICBitmap> joinSideBySide(IWICBitmap* a, IWICBitmap* b) {
+    if (!a || !b) return nullptr;
+    UINT aw = 0, ah = 0, bw = 0, bh = 0;
+    a->GetSize(&aw, &ah);
+    b->GetSize(&bw, &bh);
+    if (!aw || !ah || !bw || !bh) return nullptr;
+    // common height = the taller image, unless the result would get unreasonably wide
+    double H = std::max(ah, bh);
+    double W = aw * H / ah + bw * H / bh;
+    if (W > 20000) { H *= 20000 / W; }
+    const UINT h = (UINT)std::max(1.0, std::round(H));
+    const UINT wa = (UINT)std::max(1.0, std::round(aw * H / ah)), wb = (UINT)std::max(1.0, std::round(bw * H / bh));
+    ComPtr<IWICBitmap> sa = (wa == aw && h == ah) ? ComPtr<IWICBitmap>(a) : resizeBitmap(a, wa, h);
+    ComPtr<IWICBitmap> sb = (wb == bw && h == bh) ? ComPtr<IWICBitmap>(b) : resizeBitmap(b, wb, h);
+    ComPtr<IWICBitmap> out;
+    if (!sa || !sb || FAILED(G.wic->CreateBitmap(wa + wb, h, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &out))) return nullptr;
+    WICRect ro{0, 0, (INT)(wa + wb), (INT)h};
+    ComPtr<IWICBitmapLock> lo;
+    if (FAILED(out->Lock(&ro, WICBitmapLockWrite, &lo))) return nullptr;
+    UINT os = 0, sz = 0;
+    BYTE* op = nullptr;
+    lo->GetStride(&os);
+    lo->GetDataPointer(&sz, &op);
+    // CopyPixels straight into the destination rows: left block, then right block
+    WICRect r1{0, 0, (INT)wa, (INT)h}, r2{0, 0, (INT)wb, (INT)h};
+    if (FAILED(sa->CopyPixels(&r1, os, os * (h - 1) + wa * 4, op))) return nullptr;
+    if (FAILED(sb->CopyPixels(&r2, os, os * (h - 1) + wb * 4, op + wa * 4))) return nullptr;
+    return out;
+}
+} // namespace dv

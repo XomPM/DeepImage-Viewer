@@ -200,9 +200,22 @@ void App::goFolder(int d) {
         at = (int)(std::lower_bound(names.begin(), names.end(), me, [](const std::wstring& a, const std::wstring& b) { return StrCmpLogicalW(a.c_str(), b.c_str()) < 0; }) - names.begin());
         if (d > 0) --at;
     }
+    const bool wasCompare = compare;
     for (int k = at + d; k >= 0 && k < (int)names.size(); k += d) {
         std::wstring c = parent + (parent.back() == L'\\' ? L"" : L"\\") + names[k];
-        if (openContainer(c)) { toast(names[k]); return; }
+        if (!openContainer(c)) continue;
+        toast(names[k]);
+        // compare mode carries over: first image on the left, second on the right
+        if (wasCompare) {
+            const int l = nextImage(-1, 1), r = l >= 0 ? nextImage(l, 1) : -1;
+            if (r < 0) { if (compare) toggleCompare(0); toast(T("compare.need2")); }
+            else {
+                if (!compare) { compare = true; layout(); }
+                if (index != l) show(l);
+                showRight(r);
+            }
+        }
+        return;
     }
     toast(T(d > 0 ? "folder.last" : "folder.first"));
 }
@@ -401,6 +414,7 @@ void App::toggleAnnot(int on) {
     bool v = on < 0 ? !annot : on != 0;
     if (v && (mode != Mode::Image || !doc.loaded())) return;
     if (v && compare) toggleCompare(0);
+    if (v) { if (slideshow) toggleSlideshow(0); picking = false; }
     if (!v) markup.deselect();
     if (v && editMode) toggleEdit(0);
     annot = v;
@@ -412,6 +426,7 @@ void App::toggleEdit(int on) {
     bool v = on < 0 ? !editMode : on != 0;
     if (v && (mode != Mode::Image || !doc.loaded())) return;
     if (v && compare) toggleCompare(0);
+    if (v) { if (slideshow) toggleSlideshow(0); picking = false; }
     if (v && annot) annot = false;
     if (!v) {
         if (panel == EditPanel::Adjust) { adj = Adjust{}; fxActive = false; }
@@ -593,6 +608,110 @@ void App::goCompare(int d) {
     showRight(r);
 }
 
+// ======================================================================== slideshow
+void App::armSlideTimer() {
+    if (slideshow) SetTimer(hwnd, 4, (UINT)S.slideDelay * 1000, nullptr);
+    else KillTimer(hwnd, 4);
+}
+
+void App::toggleSlideshow(int on) {
+    bool v = on < 0 ? !slideshow : on != 0;
+    if (v == slideshow) return;
+    if (v) {
+        if (files.size() < 2 || mode == Mode::Empty) { toast(T("slide.need2")); return; }
+        if (annot) toggleAnnot(0);
+        if (editMode) toggleEdit(0);
+        if (picking) togglePicker(0);
+        slidePaused = false;
+    }
+    slideshow = v;
+    if (v) { pillRv.poke(GetTickCount()); armChromeTimer(); }
+    armSlideTimer();
+    toast(v ? fmtf(T("slide.on"), S.slideDelay) : std::wstring(T("slide.off")));
+    requestPaint();
+}
+
+void App::setSlideDelay(int sec) {
+    S.slideDelay = std::clamp(sec, 1, 60);
+    S.save();
+    armSlideTimer(); // restart the countdown with the new delay
+    requestPaint();
+}
+
+void App::slideStep() {
+    if (!slideshow || slidePaused || modal.kind || files.size() < 2) return;
+    if (loading || loadingR) return; // still showing the last one: try again on the next tick
+    auto nextWrap = [this](int from) { int k = nextImage(from, 1); return k >= 0 ? k : nextImage(-1, 1); };
+    if (compare && indexR >= 0) {
+        // each pane moves to its own next image
+        int l = nextWrap(index), r = nextWrap(indexR);
+        if (l < 0 || r < 0) return;
+        show(l);
+        showRight(r);
+    } else show(index + 1 < (int)files.size() ? index + 1 : 0);
+}
+
+// ======================================================================== colour picker
+void App::togglePicker(int on) {
+    bool v = on < 0 ? !picking : on != 0;
+    if (v == picking) return;
+    if (v) {
+        if (mode != Mode::Image || !doc.loaded()) return;
+        if (annot) toggleAnnot(0);
+        if (editMode) toggleEdit(0);
+        toast(T("pick.hint"));
+    }
+    picking = v;
+    hoverOk = false;
+    requestPaint();
+}
+
+// colour of the source pixel under a window point (left or right pane), un-premultiplied
+bool App::sampleAt(float x, float y, uint32_t& rgb) {
+    const bool right = compare && docR.loaded() && inside(rcPaneR, x, y);
+    ImageDoc& d = right ? docR : doc;
+    ImageView& v = right ? viewR : view;
+    if (!d.loaded() || d.img.frames.empty()) return false;
+    auto p = v.toImage(x, y);
+    if (p.x < 0 || p.y < 0 || p.x >= d.W() || p.y >= d.H()) return false;
+    auto& bmp = d.img.frames[std::min<size_t>(d.frame, d.img.frames.size() - 1)];
+    WICRect rc{(INT)p.x, (INT)p.y, 1, 1};
+    ComPtr<IWICBitmapLock> lk;
+    if (!bmp || FAILED(bmp->Lock(&rc, WICBitmapLockRead, &lk))) return false;
+    UINT sz = 0;
+    BYTE* px = nullptr;
+    lk->GetDataPointer(&sz, &px);
+    if (!px || sz < 4) return false;
+    int b = px[0], g = px[1], r = px[2], a = px[3];
+    if (a > 0 && a < 255) { r = std::min(255, r * 255 / a); g = std::min(255, g * 255 / a); b = std::min(255, b * 255 / a); }
+    rgb = ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+    return true;
+}
+
+void App::copyText(const std::wstring& t) {
+    if (!OpenClipboard(hwnd)) return;
+    EmptyClipboard();
+    size_t bytes = (t.size() + 1) * 2;
+    if (HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, bytes)) {
+        memcpy(GlobalLock(h), t.c_str(), bytes);
+        GlobalUnlock(h);
+        SetClipboardData(CF_UNICODETEXT, h);
+    }
+    CloseClipboard();
+    toast(std::wstring(T("copied.text")) + L" · " + t);
+}
+
+void App::togglePin() {
+    S.pinChrome = !S.pinChrome;
+    S.save();
+    const DWORD now = GetTickCount();
+    if (!S.pinChrome) { navRv.poke(now); barRv.poke(now); stripRv.poke(now); armChromeTimer(); }
+    layout();
+    eachView([](ImageView& v, const D2D1_RECT_F&) { v.fit(true); });
+    toast(T(S.pinChrome ? "pin.on" : "pin.off"));
+    requestPaint();
+}
+
 void App::open3dPrint() {
     ShellExecuteW(hwnd, L"open", L"https://www.godgok.com/3dmind/", nullptr, nullptr, SW_SHOWNORMAL);
 }
@@ -668,7 +787,31 @@ void App::saveAs() {
     if (!_wcsicmp(dirName(out).c_str(), dirName(cur.path).c_str())) refreshFolder();
 }
 
+// right pane as shown (rotation / flip), like composite() for the left one
+ComPtr<IWICBitmap> App::compositeRight() {
+    if (!docR.loaded()) return nullptr;
+    float w, h;
+    viewR.rotatedSize(w, h);
+    auto M = D2D1::Matrix3x2F::Translation(-viewR.imgW / 2, -viewR.imgH / 2) * D2D1::Matrix3x2F::Scale(viewR.fx, viewR.fy) *
+             D2D1::Matrix3x2F::Rotation((float)viewR.rot) * D2D1::Matrix3x2F::Translation(w / 2, h / 2);
+    return renderToWic((UINT)std::lround(w), (UINT)std::lround(h), [&](ID2D1DeviceContext* dc) {
+        D2D1_MATRIX_3X2_F old;
+        dc->GetTransform(&old);
+        dc->SetTransform(M * D2D1::Matrix3x2F(old._11, old._12, old._21, old._22, old._31, old._32));
+        docR.draw(dc, 1.f, nullptr, nullptr);
+        dc->SetTransform(old);
+    }, false);
+}
+
 void App::copyImage() {
+    if (compare && docR.loaded()) {
+        // one picture: both images scaled to the same height (aspect kept), left then right
+        auto l = composite(false, false, false), r = compositeRight();
+        auto both = l && r ? joinSideBySide(l.Get(), r.Get()) : nullptr;
+        if (both && copyToClipboard(hwnd, both.Get())) toast(T("copied.compare"));
+        else toast(T("save.failed"), true);
+        return;
+    }
     auto px = composite(false);
     if (px && copyToClipboard(hwnd, px.Get())) toast(T("copied"));
     else toast(T("save.failed"), true);

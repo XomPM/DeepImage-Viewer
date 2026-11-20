@@ -103,6 +103,7 @@ void App::paint() {
     }
     drawFilmstrip();
     drawTitlebar();
+    if (mode != Mode::Empty && !modal.kind) { drawSlidePill(); drawPicker(); }
     drawToasts();
     if (modal.kind) {
         U.layer = 10;
@@ -579,7 +580,7 @@ void App::toolbar(uint64_t id, const std::vector<TbItem>& items, float cx, float
 
 void App::drawToolbars() {
     const float cx = cxOf(rcViewport), top = rcViewport.top + 14;
-    if (fullscreen && !mouseInViewport) return;
+    if (fullscreen && !mouseInViewport && !S.pinChrome) return;
     const float fa = immersive() ? barRv.alpha(GetTickCount()) : 1.f;
     if (fa <= 0) return;
     Fade fade(fa);
@@ -668,11 +669,15 @@ void App::drawToolbars() {
                 {TbItem::Btn, "flip-v", "flip.v", [all] { all([](ImageView& v) { v.flip(false); }); }},
                 {TbItem::Sep},
                 {TbItem::Btn, "columns-2", "compare", [this] { toggleCompare(); }, compare, files.size() > 1},
+                {TbItem::Btn, "play", "slideshow", [this] { toggleSlideshow(); }, slideshow, files.size() > 1},
+                {TbItem::Btn, "pipette", "picker", [this] { togglePicker(); }, picking},
                 {TbItem::Btn, "pen-line", "annotate", [this] { toggleAnnot(1); }, false, !compare, TL("annot.title")},
                 {TbItem::Btn, "sliders-horizontal", "edit", [this] { toggleEdit(1); }, false, !compare, TL("edit")},
                 {TbItem::Sep},
-                {TbItem::Btn, "download", "save", [this] { saveAs(); }},
+                {TbItem::Btn, "copy", compare ? "copy.compare" : "copy", [this] { copyImage(); }},
+                {TbItem::Btn, "download", "save", [this] { saveAs(); }, false, !compare},
                 {TbItem::Btn, "panel-right-open", "info", [this] { toggleInfo(); }, S.infoPanel},
+                {TbItem::Btn, "pin", "pin", [this] { togglePin(); }, S.pinChrome},
                 {TbItem::Btn, "maximize-2", "fullscreen", [this] { toggleFullscreen(); }, fullscreen},
             };
             if (rw(rcViewport) < 1060) for (auto& i : it) if (i.type == TbItem::Btn) i.label = nullptr;
@@ -696,7 +701,9 @@ void App::drawToolbars() {
             {TbItem::Btn, "orbit", "v3d.rotate", [this, inv] { mv.autoRotate = !mv.autoRotate; inv(); }, mv.autoRotate},
             {TbItem::Sep},
             {TbItem::Btn, "camera", "v3d.shot", [this] { saveScreenshot(); }},
+            {TbItem::Btn, "play", "slideshow", [this] { toggleSlideshow(); }, slideshow, files.size() > 1},
             {TbItem::Btn, "panel-right-open", "info", [this] { toggleInfo(); }, S.infoPanel},
+            {TbItem::Btn, "pin", "pin", [this] { togglePin(); }, S.pinChrome},
             {TbItem::Btn, "maximize-2", "fullscreen", [this] { toggleFullscreen(); }, fullscreen},
         };
         toolbar(hid("tb.model"), it, cx, top);
@@ -991,7 +998,7 @@ void App::drawStatus() {
 
 void App::drawNav() {
     if (annot || panel == EditPanel::Crop || files.size() < 2) return;
-    const float fa = navRv.alpha(GetTickCount());
+    const float fa = S.pinChrome ? 1.f : navRv.alpha(GetTickCount());
     if (fa <= 0) return;
     Fade fade(fa);
     auto arrow = [&](bool next) {
@@ -1305,4 +1312,78 @@ void App::drawModal() {
     }
 }
 
+} // namespace dv
+
+namespace dv {
+// ======================================================================== slideshow bar
+void App::drawSlidePill() {
+    if (!slideshow) return;
+    const bool autoHide = (fullscreen || immersive()) && !S.pinChrome;
+    const float fa = autoHide ? pillRv.alpha(GetTickCount()) : 1.f;
+    if (fa <= 0) return;
+    Fade fade(fa);
+    static const int delays[] = {1, 2, 3, 5, 10};
+    std::vector<std::wstring> names;
+    int sel = -1;
+    for (int i = 0; i < 5; ++i) {
+        names.push_back(fmtf(T("slide.sec"), delays[i]));
+        if (delays[i] == S.slideDelay) sel = i;
+    }
+    const float sw = U.segmentedWidth(names);
+    const float w = 8 + 36 + 8 + sw + 8 + 36 + 8;
+    const float bottom = (rh(rcStrip) > 0 && immersive() && stripRv.alpha(GetTickCount()) > 0) ? rcStrip.top - 10 : rcViewport.bottom - 14;
+    D2D1_RECT_F r = RW(cxOf(rcViewport) - w / 2, bottom - 48, w, 48);
+    U.glassPanel(r, 14);
+    U.add(hid("slide.bar"), r);
+    U.toolButton(hid("slide.pp"), RW(r.left + 8, r.top + 8, 36, 32), slidePaused ? "play" : "pause", slidePaused ? "slide.play" : "slide.pause",
+                 [this] { slidePaused = !slidePaused; armSlideTimer(); requestPaint(); });
+    U.segmented(hid("slide.delay"), RW(r.left + 52, r.top + 8, sw, 32), names, sel, [this](int i) { setSlideDelay(delays[i]); });
+    U.toolButton(hid("slide.stop"), RW(r.right - 44, r.top + 8, 36, 32), "x", "slide.stop", [this] { toggleSlideshow(0); });
+}
+
+// ======================================================================== colour picker
+static std::wstring hexOf(uint32_t c) { return fmtf(L"%06X", c & 0xFFFFFF); }
+static std::wstring rgbOf(uint32_t c) { return fmtf(L"rgb(%u, %u, %u)", (c >> 16) & 255, (c >> 8) & 255, c & 255); }
+
+void App::drawPicker() {
+    if (mode != Mode::Image) return;
+    // the eyedropper itself, tip on the hot spot, with a live colour chip
+    if (picking && hoverOk && inside(rcViewport, lastX, lastY) && !U.overWidget(lastX, lastY)) {
+        const float x = lastX, y = lastY;
+        const D2D1_COLOR_F c = D2D1::ColorF(hoverRgb);
+        D2D1_RECT_F chip = RW(x + 18, y + 12, 104, 28);
+        G.shadow(chip, 8, .5f);
+        G.fill(chip, P.surface, 8);
+        G.stroke(chip, P.line2, 8, 1);
+        D2D1_RECT_F sw = RW(chip.left + 6, chip.top + 6, 16, 16);
+        G.fill(sw, c, 4);
+        G.stroke(sw, P.line2, 4, 1);
+        G.text(L"#" + hexOf(hoverRgb), RW(chip.left + 28, chip.top, 74, 28), 12, P.text, 600);
+        // tip of the 24-unit icon is at (2, 22)
+        const float sz = 24, ox = (12 - 2) * sz / 24, oy = (12 - 22) * sz / 24;
+        G.icon("pipette", x + ox + 1, y + oy + 1, sz, D2D1::ColorF(0, 0, 0, .55f), 3.2f);
+        G.icon("pipette", x + ox, y + oy, sz, D2D1::ColorF(1, 1, 1, 1), 1.9f);
+    }
+    if (!pickShown) return;
+    // result card: swatch + HEX + RGB, each with a copy button
+    const float w = 292, h = 158;
+    D2D1_RECT_F r = RW(rcViewport.right - 16 - w, rcViewport.top + 70, w, h);
+    U.glassPanel(r, 14);
+    U.add(hid("pick.card"), r);
+    D2D1_RECT_F sw = RW(r.left + 14, r.top + 14, 40, 40);
+    G.fill(sw, D2D1::ColorF(pickRgb), 10);
+    G.stroke(sw, P.line2, 10, 1);
+    G.text(T("pick.title"), RW(sw.right + 12, r.top + 14, 160, 20), 12.5f, P.text, 600);
+    G.text(picking ? T("pick.again") : T("pick.done"), RW(sw.right + 12, r.top + 34, 180, 20), 11, P.text2);
+    U.toolButton(hid("pick.close"), RW(r.right - 42, r.top + 12, 30, 30), "x", "close", [this] { pickShown = false; requestPaint(); }, false, true, nullptr, 16);
+    auto row = [&](float top, const wchar_t* label, const std::wstring& value, uint64_t id) {
+        D2D1_RECT_F rr = RW(r.left + 10, top, w - 20, 38);
+        G.fill(rr, P.hover, 8);
+        G.text(label, RW(rr.left + 12, rr.top, 46, 38), 11, P.text2, 600);
+        G.text(value, RW(rr.left + 62, rr.top, 160, 38), 13, P.text, 500);
+        U.toolButton(id, RW(rr.right - 36, rr.top + 4, 30, 30), "copy", "copy", [this, value] { copyText(value); }, false, true, nullptr, 16);
+    };
+    row(r.top + 64, L"HEX", hexOf(pickRgb), hid("pick.hex"));
+    row(r.top + 108, L"RGB", rgbOf(pickRgb), hid("pick.rgb"));
+}
 } // namespace dv

@@ -27,6 +27,8 @@ void Settings::load() {
     infoPanel = getDword(k, L"InfoPanel", 0) != 0;
     grid = getDword(k, L"Grid", 1) != 0;
     fitMode = (int)getDword(k, L"FitMode", 0) % 5;
+    slideDelay = std::clamp((int)getDword(k, L"SlideDelay", 3), 1, 60);
+    pinChrome = getDword(k, L"PinChrome", 0) != 0;
     thumbColor = getDword(k, L"ThumbColor", 0);
     thumbColorAll = getDword(k, L"ThumbColorAll", 0) != 0;
     DWORD sz = sizeof placement, type = 0;
@@ -51,6 +53,8 @@ void Settings::save() const {
     setDword(k, L"InfoPanel", infoPanel);
     setDword(k, L"Grid", grid);
     setDword(k, L"FitMode", fitMode);
+    setDword(k, L"SlideDelay", slideDelay);
+    setDword(k, L"PinChrome", pinChrome);
     setDword(k, L"ThumbColor", thumbColor);
     setDword(k, L"ThumbColorAll", thumbColorAll);
     if (hasPlacement) RegSetValueExW(k, L"Placement", 0, REG_BINARY, (const BYTE*)&placement, sizeof placement);

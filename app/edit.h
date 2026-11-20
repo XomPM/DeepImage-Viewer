@@ -44,5 +44,7 @@ std::vector<EncoderInfo> availableEncoders();
 bool saveBitmap(const std::wstring& path, const GUID& container, IWICBitmapSource* pixels, float jpegQuality,
                 const std::wstring& metadataSource, bool keepMetadata);
 bool copyToClipboard(HWND hwnd, IWICBitmapSource* pixels);
+// a and b scaled to the same height (aspect kept) and placed side by side
+ComPtr<IWICBitmap> joinSideBySide(IWICBitmap* a, IWICBitmap* b);
 
 } // namespace dv

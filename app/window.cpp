@@ -235,6 +235,8 @@ LRESULT App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         } else if (w == 2) {
             KillTimer(h, 2);
             if (U.tooltipDue()) requestPaint();
+        } else if (w == 4) {
+            slideStep();
         } else if (w == 3) {
             KillTimer(h, 3);
             armChromeTimer();
@@ -251,6 +253,7 @@ LRESULT App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             HCURSOR c = nullptr;
             if (HCURSOR wc = U.cursorAt(x, y)) c = wc;
             else if (U.overWidget(x, y) || modal.kind) c = LoadCursorW(nullptr, IDC_ARROW);
+            else if (picking && mode == Mode::Image && inside(rcViewport, x, y)) { SetCursor(nullptr); return TRUE; } // eyedropper is drawn
             else if (inside(rcViewport, x, y)) {
                 if (mode == Mode::Image) {
                     if (panel == EditPanel::Crop) {
@@ -372,29 +375,30 @@ LRESULT App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
 }
 
 bool App::immersive() const {
-    return mode == Mode::Image && S.fitMode == 1 && !compare && !annot && !editMode && panel == EditPanel::None && !fullscreen;
+    return mode == Mode::Image && S.fitMode == 1 && !compare && !annot && !editMode && panel == EditPanel::None && !fullscreen && !S.pinChrome;
 }
 
 // show the auto-hiding chrome when the pointer comes near it
 void App::pokeChrome(float x, float y) {
     if (mode == Mode::Empty || modal.kind) return;
     const DWORD now = GetTickCount();
-    const bool before = navRv.alpha(now) > 0 || barRv.alpha(now) > 0 || stripRv.alpha(now) > 0;
+    const bool before = navRv.alpha(now) > 0 || barRv.alpha(now) > 0 || stripRv.alpha(now) > 0 || pillRv.alpha(now) > 0;
+    if (slideshow) pillRv.poke(now);
     if (files.size() > 1 && inside(rcViewport, x, y) && (x < rcViewport.left + 120 || x > rcViewport.right - 120)) navRv.poke(now);
     if (immersive()) {
         if (y < rcViewport.top + 84) barRv.poke(now);
         if (rh(rcStrip) > 0 && y > rcStrip.top - 24) stripRv.poke(now);
     }
     armChromeTimer();
-    const bool after = navRv.alpha(now) > 0 || barRv.alpha(now) > 0 || stripRv.alpha(now) > 0;
-    if (before != after || navRv.animating(now) || barRv.animating(now) || stripRv.animating(now)) { requestPaint(); ensureTimer(); }
+    const bool after = navRv.alpha(now) > 0 || barRv.alpha(now) > 0 || stripRv.alpha(now) > 0 || pillRv.alpha(now) > 0;
+    if (before != after || navRv.animating(now) || barRv.animating(now) || stripRv.animating(now) || pillRv.animating(now)) { requestPaint(); ensureTimer(); }
 }
 
 // wake up when the next piece of chrome should start fading out
 void App::armChromeTimer() {
     const DWORD now = GetTickCount();
     DWORD due = 0;
-    for (const Reveal* r : {&navRv, &barRv, &stripRv})
+    for (const Reveal* r : {&navRv, &barRv, &stripRv, &pillRv})
         if (r->on && r->until > now && (!due || r->until - now < due)) due = r->until - now;
     if (due) SetTimer(hwnd, 3, due + 5, nullptr);
     else KillTimer(hwnd, 3);
@@ -403,7 +407,7 @@ void App::armChromeTimer() {
 bool App::needsAnimation() {
     {
         const DWORD now = GetTickCount();
-        if (navRv.animating(now) || barRv.animating(now) || stripRv.animating(now)) return true;
+        if (navRv.animating(now) || barRv.animating(now) || stripRv.animating(now) || pillRv.animating(now)) return true;
     }
     if (view.animating() || (compare && viewR.animating())) return true;
     if (compare && (loadingR || docR.frameCount() > 1)) return true;
@@ -457,6 +461,12 @@ void App::onMouseDown(float x, float y, int button, WPARAM keys) {
         return;
     }
     if (!inside(rcViewport, x, y)) return;
+    if (picking && mode == Mode::Image) {
+        if (button == 1) { togglePicker(0); return; }
+        uint32_t c;
+        if (button == 0 && sampleAt(x, y, c)) { pickRgb = c; pickShown = true; requestPaint(); return; }
+        if (button == 0) return; // outside the picture: nothing to pick, and no panning either
+    }
     if (mode == Mode::Image && doc.loaded()) {
         if (button == 0 && panel == EditPanel::Crop) {
             cropHandle = cropHitTest(x, y);
@@ -490,6 +500,11 @@ void App::onMouseMove(float x, float y, WPARAM keys) {
     bool inVp = inside(rcViewport, x, y);
     if (inVp != mouseInViewport) { mouseInViewport = inVp; redraw = true; }
     if (drag == DragKind::None) pokeChrome(x, y);
+    if (picking) {
+        bool was = hoverOk;
+        hoverOk = inVp && !U.overWidget(x, y) && sampleAt(x, y, hoverRgb);
+        if (hoverOk || was) redraw = true;
+    }
     float dx = x - lastX, dy = y - lastY;
     lastX = x;
     lastY = y;
@@ -683,8 +698,11 @@ bool App::onKey(UINT vk, bool down) {
     switch (vk) {
     case VK_RIGHT: guardUnsaved([this] { go(1); }); return done();
     case VK_LEFT: guardUnsaved([this] { go(-1); }); return done();
-    case VK_NEXT: if (!compare) guardUnsaved([this] { goFolder(1); }); return done();
-    case VK_PRIOR: if (!compare) guardUnsaved([this] { goFolder(-1); }); return done();
+    case VK_NEXT: guardUnsaved([this] { goFolder(1); }); return done();
+    case VK_PRIOR: guardUnsaved([this] { goFolder(-1); }); return done();
+    case VK_F5: toggleSlideshow(); return done();
+    case 'I': if (img) togglePicker(); return done();
+    case 'P': togglePin(); return done();
     case VK_HOME: if (!files.empty()) guardUnsaved([this] { show(0); }); return done();
     case VK_END: if (!files.empty()) guardUnsaved([this] { show((int)files.size() - 1); }); return done();
     case VK_OEM_PLUS: case VK_ADD: if (img) zoomViews(1.25f, cx, cy, true); return done();
@@ -696,7 +714,9 @@ bool App::onKey(UINT vk, bool down) {
     case VK_F11: toggleFullscreen(); return done();
     case VK_ESCAPE:
         // cancel what is in progress first; minimise only when there is nothing to cancel
-        if (fullscreen) toggleFullscreen();
+        if (picking) togglePicker(0);
+        else if (slideshow) toggleSlideshow(0);
+        else if (fullscreen) toggleFullscreen();
         else if (compare) toggleCompare(0);
         else ShowWindow(hwnd, SW_MINIMIZE);
         return done();
@@ -717,7 +737,8 @@ bool App::onKey(UINT vk, bool down) {
     case 'G': if (mdl) { mv.grid = !mv.grid; mv.invalidate(); } return done();
     case 'B': if (mdl) { mv.bbox = !mv.bbox; mv.invalidate(); } return done();
     case VK_SPACE:
-        if (mdl) { mv.autoRotate = !mv.autoRotate; mv.invalidate(); }
+        if (slideshow) { slidePaused = !slidePaused; armSlideTimer(); toast(T(slidePaused ? "slide.paused" : "slide.resumed")); }
+        else if (mdl) { mv.autoRotate = !mv.autoRotate; mv.invalidate(); }
         else if (img && !editMode) guardUnsaved([this] { go(1); });
         return done();
     }

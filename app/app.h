@@ -125,8 +125,23 @@ public:
             return now - until < 260 ? 1.f - (now - until) / 260.f : 0.f;
         }
         bool animating(DWORD now) const { return on && ((now < until && now - shown < 140) || (now >= until && now - until < 260)); }
-    } navRv, barRv, stripRv;
+    } navRv, barRv, stripRv, pillRv;
     bool immersive() const;
+    // slideshow (compare mode: both panes step to their next image)
+    bool slideshow = false, slidePaused = false;
+    void toggleSlideshow(int on = -1);
+    void setSlideDelay(int sec);
+    void slideStep();
+    void armSlideTimer();
+    void drawSlidePill();
+    // colour picker (eyedropper)
+    bool picking = false, pickShown = false, hoverOk = false;
+    uint32_t pickRgb = 0, hoverRgb = 0;
+    void togglePicker(int on = -1);
+    bool sampleAt(float x, float y, uint32_t& rgb);
+    void drawPicker();
+    void copyText(const std::wstring& t);
+    void togglePin();
     void pokeChrome(float x, float y);
     void armChromeTimer();
 
@@ -218,6 +233,7 @@ public:
     void saveScreenshot();
     void refreshFolder();
     ComPtr<IWICBitmap> composite(bool white, bool withMarkup = true, bool withEffects = true);
+    ComPtr<IWICBitmap> compositeRight();
     void pushEdit();
     void undoEdit();
     void bakeOrientationIntoImage();
