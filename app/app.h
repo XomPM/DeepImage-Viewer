@@ -14,7 +14,7 @@
 
 namespace dv {
 
-enum : UINT { WM_APP_IMAGE = WM_APP + 1, WM_APP_MODEL, WM_APP_THUMB, WM_APP_PRELOAD, WM_APP_IMAGE_R };
+enum : UINT { WM_APP_IMAGE = WM_APP + 1, WM_APP_MODEL, WM_APP_THUMB, WM_APP_PRELOAD, WM_APP_IMAGE_R, WM_APP_MODEL_R };
 
 struct FileEntry {
     std::wstring path, name, ext;
@@ -93,6 +93,28 @@ public:
     DWORD stripT0 = 0;
 
     ModelView mv;
+    ModelView mvR;               // right pane when comparing two 3D files
+    bool compareModels = false;  // compare mode is showing 3D files
+    void allModels(const std::function<void(ModelView&)>& f); // mv, plus mvR while comparing
+    void showRightModel(int k);
+    void onModelLoadedR(uint64_t s, DvModel* m, const std::string& err);
+    // section view (shared by both panes)
+    bool section = false, secFlip = false;
+    int secAxis = 2;
+    float secPos = .5f;
+    void toggleSection(int on = -1);
+    void applySection();
+    void drawSectionBar();
+    // distance measurement
+    bool measuring = false;
+    struct Measurement { ModelView::Hit a, b; bool right = false; };
+    std::vector<Measurement> measures;
+    ModelView::Hit measA, hover3d;
+    bool measARight = false, hoverRight = false;
+    void toggleMeasure(int on = -1);
+    void pickMeasure(float x, float y, bool commit);
+    void drawMeasure();
+    std::wstring lengthText(float v) const;
     bool hintGone = false;
 
     ThumbService thumbs;

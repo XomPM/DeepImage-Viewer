@@ -23,6 +23,8 @@ cbuffer C : register(b0) {
     float4 sky;
     float4 ground;
     float4 fade;       // xy centre (world xz), z radius (0 = off), w line alpha
+    float4 plane;      // section plane (world): cut where dot(n, p) + d > 0
+    float4 cap;        // rgb section colour, a = 1 when the section is on
 };
 Texture2D tex : register(t0);
 SamplerState smp : register(s0);
@@ -40,6 +42,12 @@ VO vsMesh(VI i) {
     return o;
 }
 float4 psMesh(VO i) : SV_TARGET {
+    if (cap.a > 0.5) {
+        clip(-(dot(plane.xyz, i.w) + plane.w));
+        // looking at an inside face through the cut: paint the solid section colour
+        float3 nn = normalize(i.n);
+        if (dot(nn, eye.xyz - i.w) < 0) return float4(cap.rgb, 1);
+    }
     float3 albedo = base.rgb;
     if (flags.z > 0.5) albedo = i.c.rgb;
     if (flags.y > 0.5) albedo *= tex.Sample(smp, i.uv).rgb;
@@ -71,6 +79,7 @@ LO vsLine(LI i) {
     return o;
 }
 float4 psLine(LO i) : SV_TARGET {
+    if (cap.a > 0.5) clip(-(dot(plane.xyz, i.w) + plane.w));
     float a = i.c.a * fade.w;
     if (fade.z > 0) a *= saturate(1.0 - length(i.w.xz - fade.xy) / fade.z);
     return float4(i.c.rgb * a, a);
@@ -89,7 +98,7 @@ struct LV { float p[3], c[4]; };
 struct CB {
     float viewProj[16];
     float model[16];
-    float eye[4], keyDir[4], fillDir[4], base[4], flags[4], sky[4], ground[4], fade[4];
+    float eye[4], keyDir[4], fillDir[4], base[4], flags[4], sky[4], ground[4], fade[4], plane[4], cap[4];
 };
 
 V3 sub(V3 a, V3 b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
@@ -336,6 +345,7 @@ void ModelView::computeFrame() {
     shadowVb_ = makeBuffer(q, sizeof q, D3D11_BIND_VERTEX_BUFFER);
     buildGrid();
     buildBox();
+    if (secOn_) setSection(true, secAxis_, secPos_, secFlip_);
 }
 
 void ModelView::buildGrid() {
@@ -638,7 +648,11 @@ void ModelView::draw(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, U
         c->Draw(gridCount_, 0);
     }
 
-    // model
+    // model (and edges) cut by the section plane
+    if (secOn_) {
+        memcpy(cb.plane, plane_, sizeof cb.plane);
+        cb.cap[0] = 0.93f; cb.cap[1] = 0.42f; cb.cap[2] = 0.30f; cb.cap[3] = 1;
+    }
     c->IASetInputLayout(ilMesh_.Get());
     c->VSSetShader(vsMesh_.Get(), nullptr, 0);
     c->PSSetShader(psMesh_.Get(), nullptr, 0);
@@ -676,6 +690,12 @@ void ModelView::draw(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, U
     if (edges && edgeVb_) {
         c->IASetVertexBuffers(0, 1, edgeVb_.GetAddressOf(), &ls, &off);
         c->Draw(edgeCount_, 0);
+    }
+    cb.cap[3] = 0; // outlines below are never cut
+    upload();
+    if (secOn_ && secVb_) {
+        c->IASetVertexBuffers(0, 1, secVb_.GetAddressOf(), &ls, &off);
+        c->Draw(secCount_, 0);
     }
     if (bbox && boxVb_) {
         c->OMSetDepthStencilState(nullptr, 0);
@@ -718,6 +738,165 @@ ComPtr<IWICBitmap> ModelView::screenshot(UINT w, UINT h) {
     G.wic->CreateBitmapFromMemory(td.Width, td.Height, GUID_WICPixelFormat32bppPBGRA, m.RowPitch, m.RowPitch * td.Height, (BYTE*)m.pData, &out);
     G.ctx->Unmap(st.Get(), 0);
     return out;
+}
+
+// ======================================================================== section
+void ModelView::setSection(bool on, int axis, float pos, bool flip) {
+    secOn_ = on;
+    secAxis_ = std::clamp(axis, 0, 2);
+    secPos_ = clampf(pos, 0.f, 1.f);
+    secFlip_ = flip;
+    if (on) {
+        // plane in model space: coord[axis] = c, normal = +axis (or -axis when flipped); then into world
+        const float c = sectionCoord(secAxis_, secPos_);
+        V3 n{model_[secAxis_ * 4 + 0], model_[secAxis_ * 4 + 1], model_[secAxis_ * 4 + 2]};
+        if (flip) n = mulv(n, -1);
+        float pm[3] = {0, 0, 0};
+        pm[secAxis_] = c;
+        V3 pw{pm[0] * model_[0] + pm[1] * model_[4] + pm[2] * model_[8] + model_[12],
+              pm[0] * model_[1] + pm[1] * model_[5] + pm[2] * model_[9] + model_[13],
+              pm[0] * model_[2] + pm[1] * model_[6] + pm[2] * model_[10] + model_[14]};
+        plane_[0] = n.x; plane_[1] = n.y; plane_[2] = n.z;
+        plane_[3] = -dot3(n, pw);
+        buildSectionOutline();
+    }
+    dirty_ = true;
+}
+
+void ModelView::buildSectionOutline() {
+    secVb_.Reset();
+    secCount_ = 0;
+    if (!ready_ || parts_.empty()) return;
+    // rectangle where the plane crosses the (slightly enlarged) bounding box
+    const int a = secAxis_, u = (a + 1) % 3, w = (a + 2) % 3;
+    float m[3];
+    for (int k = 0; k < 3; ++k) m[k] = (bmax_[k] - bmin_[k]) * 0.04f + radius_ * 0.01f;
+    float corners[4][3];
+    for (int i = 0; i < 4; ++i) {
+        corners[i][a] = sectionCoord(a, secPos_);
+        corners[i][u] = (i == 1 || i == 2) ? bmax_[u] + m[u] : bmin_[u] - m[u];
+        corners[i][w] = (i >= 2) ? bmax_[w] + m[w] : bmin_[w] - m[w];
+    }
+    std::vector<LV> v;
+    D2D1_COLOR_F c = rgba(0xEE6B4D);
+    auto toW = [&](const float* p) {
+        return V3{p[0] * model_[0] + p[1] * model_[4] + p[2] * model_[8] + model_[12], p[0] * model_[1] + p[1] * model_[5] + p[2] * model_[9] + model_[13],
+                  p[0] * model_[2] + p[1] * model_[6] + p[2] * model_[10] + model_[14]};
+    };
+    for (int i = 0; i < 4; ++i) {
+        V3 p0 = toW(corners[i]), p1 = toW(corners[(i + 1) % 4]);
+        v.push_back({{p0.x, p0.y, p0.z}, {c.r, c.g, c.b, .9f}});
+        v.push_back({{p1.x, p1.y, p1.z}, {c.r, c.g, c.b, .9f}});
+    }
+    secVb_ = makeBuffer(v.data(), (UINT)(v.size() * sizeof(LV)), D3D11_BIND_VERTEX_BUFFER);
+    secCount_ = (UINT)v.size();
+}
+
+// ======================================================================== picking
+void ModelView::basis(V3& eye, V3& x, V3& y, V3& z) const {
+    eye = add(target_, mulv(V3{std::cos(pitch_) * std::sin(yaw_), std::sin(pitch_), std::cos(pitch_) * std::cos(yaw_)}, dist_));
+    z = norm(sub(eye, target_));
+    x = norm(cross3(std::fabs(z.y) > 0.999f ? V3{0, 0, -1} : V3{0, 1, 0}, z));
+    y = cross3(z, x);
+}
+
+bool ModelView::project(V3 p, float vw, float vh, float& sx, float& sy) const {
+    V3 eye, x, y, z;
+    basis(eye, x, y, z);
+    V3 d = sub(p, eye);
+    float depth = -dot3(d, z);
+    if (depth <= 1e-6f) return false;
+    const float t = std::tan(kFov / 2), aspect = vw / std::max(1.f, vh);
+    sx = (dot3(d, x) / (depth * t * aspect) + 1) * 0.5f * vw;
+    sy = (1 - dot3(d, y) / (depth * t)) * 0.5f * vh;
+    return true;
+}
+
+ModelView::Hit ModelView::pick(float sx, float sy, float vw, float vh) const {
+    Hit best;
+    if (parts_.empty() || vw < 2 || vh < 2) return best;
+    V3 eye, cx, cy, cz;
+    basis(eye, cx, cy, cz);
+    const float t = std::tan(kFov / 2), aspect = vw / vh;
+    const float nx = (2 * sx / vw - 1) * t * aspect, ny = (1 - 2 * sy / vh) * t;
+    V3 dw = norm(add(add(mulv(cz, -1), mulv(cx, nx)), mulv(cy, ny)));
+    // world -> model: model_ is rotation rows + translation, so the inverse is a transpose
+    auto toM = [&](V3 p, bool point) {
+        V3 q = point ? V3{p.x - model_[12], p.y - model_[13], p.z - model_[14]} : p;
+        return V3{q.x * model_[0] + q.y * model_[1] + q.z * model_[2], q.x * model_[4] + q.y * model_[5] + q.z * model_[6],
+                  q.x * model_[8] + q.y * model_[9] + q.z * model_[10]};
+    };
+    auto toW = [&](V3 p) {
+        return V3{p.x * model_[0] + p.y * model_[4] + p.z * model_[8] + model_[12], p.x * model_[1] + p.y * model_[5] + p.z * model_[9] + model_[13],
+                  p.x * model_[2] + p.y * model_[6] + p.z * model_[10] + model_[14]};
+    };
+    const V3 o = toM(eye, true), d = toM(dw, false);
+    auto cut = [&](V3 p) {
+        if (!secOn_) return false;
+        float c = (&p.x)[secAxis_] - sectionCoord(secAxis_, secPos_);
+        return secFlip_ ? c < 0 : c > 0;
+    };
+    float bestT = 1e30f;
+    V3 tri[3];
+    for (size_t s = 0; s < cpuPos_.size(); ++s) {
+        if (cpuPoints_[s]) continue;
+        const auto& P = cpuPos_[s];
+        const auto& I = cpuIdx_[s];
+        for (size_t k = 0; k + 2 < I.size(); k += 3) {
+            const float* a = &P[I[k] * 3];
+            const float* b = &P[I[k + 1] * 3];
+            const float* c = &P[I[k + 2] * 3];
+            V3 A{a[0], a[1], a[2]}, e1{b[0] - a[0], b[1] - a[1], b[2] - a[2]}, e2{c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+            V3 pv = cross3(d, e2);
+            float det = dot3(e1, pv);
+            if (std::fabs(det) < 1e-20f) continue;
+            float inv = 1 / det;
+            V3 tv = sub(o, A);
+            float u = dot3(tv, pv) * inv;
+            if (u < 0 || u > 1) continue;
+            V3 qv = cross3(tv, e1);
+            float v = dot3(d, qv) * inv;
+            if (v < 0 || u + v > 1) continue;
+            float tt = dot3(e2, qv) * inv;
+            if (tt <= 0 || tt >= bestT) continue;
+            V3 hit = add(o, mulv(d, tt));
+            if (cut(hit)) continue; // hidden by the section
+            bestT = tt;
+            best.ok = true;
+            best.model = hit;
+            tri[0] = A;
+            tri[1] = {b[0], b[1], b[2]};
+            tri[2] = {c[0], c[1], c[2]};
+        }
+    }
+    if (!best.ok) return best;
+    // snap: nearest corner within 10 px, else nearest edge within 7 px
+    float bx, by;
+    float bestD = 10;
+    for (auto& q : tri) {
+        float qx, qy;
+        if (project(toW(q), vw, vh, qx, qy)) {
+            float dd = std::hypot(qx - sx, qy - sy);
+            if (dd < bestD) { bestD = dd; best.model = q; best.snap = 1; }
+        }
+    }
+    if (best.snap == 0) {
+        bestD = 7;
+        V3 h = best.model;
+        for (int e = 0; e < 3; ++e) {
+            V3 p0 = tri[e], p1 = tri[(e + 1) % 3], ev = sub(p1, p0);
+            float l2 = dot3(ev, ev);
+            if (l2 < 1e-30f) continue;
+            float k = clampf(dot3(sub(h, p0), ev) / l2, 0, 1);
+            V3 q = add(p0, mulv(ev, k));
+            if (project(toW(q), vw, vh, bx, by)) {
+                float dd = std::hypot(bx - sx, by - sy);
+                if (dd < bestD) { bestD = dd; best.model = q; best.snap = 2; }
+            }
+        }
+    }
+    best.world = toW(best.model);
+    return best;
 }
 
 } // namespace dv

@@ -44,6 +44,22 @@ public:
     int upAxis() const { return up_; }
     void setTheme(bool dark, D2D1_COLOR_F accent) { dark_ = dark; accent_ = accent; dirty_ = true; buildGrid(); buildBox(); }
 
+    // section view: everything on the positive side of a plane across model axis `axis`
+    // (0 X, 1 Y, 2 Z in the file's own axes) at `pos` (0..1 of the bounds) is cut away
+    void setSection(bool on, int axis, float pos, bool flip);
+    bool sectionOn() const { return secOn_; }
+    float sectionCoord(int axis, float pos) const { return bmin_[axis] + (bmax_[axis] - bmin_[axis]) * pos; }
+
+    // picking for measurements; sx, sy in viewport pixels of a vw x vh viewport
+    struct Hit {
+        bool ok = false;
+        int snap = 0;       // 0 surface, 1 vertex, 2 edge
+        V3 world, model;    // same point in world space (rendering) and in the file's own coordinates
+    };
+    Hit pick(float sx, float sy, float vw, float vh) const;
+    bool project(V3 world, float vw, float vh, float& sx, float& sy) const;
+    bool pickable() const { return stats.triangles <= 400'000; } // hover snapping only for reasonably small meshes
+
     ModelStats stats;
     // gizmo: screen-space directions (x right, y down) and depth for world X/Y/Z in model convention
     void axisDirs(float out[3][3]) const;
@@ -63,6 +79,8 @@ private:
     void buildGrid();
     void buildBox();
     void buildEdges();
+    void buildSectionOutline();
+    void basis(V3& eye, V3& x, V3& y, V3& z) const;
     void computeFrame();
     void updateCamera(float dt);
     void matrices(UINT w, UINT h, float* viewProj, V3& eye) const;
@@ -82,7 +100,12 @@ private:
     ComPtr<ID3D11DepthStencilState> dsOn_, dsNoWrite_;
     ComPtr<ID3D11SamplerState> sampler_;
     ComPtr<ID3D11Buffer> gridVb_, boxVb_, edgeVb_, shadowVb_;
-    UINT gridCount_ = 0, boxCount_ = 0, edgeCount_ = 0;
+    UINT gridCount_ = 0, boxCount_ = 0, edgeCount_ = 0, secCount_ = 0;
+    ComPtr<ID3D11Buffer> secVb_;
+    bool secOn_ = false, secFlip_ = false;
+    int secAxis_ = 2;
+    float secPos_ = .5f;
+    float plane_[4]{};  // world-space plane (n, d): fragments with dot(n, p) + d > 0 are cut away
 
     ComPtr<ID3D11Texture2D> msColor_, msDepth_, resolved_;
     ComPtr<ID3D11RenderTargetView> msRtv_;

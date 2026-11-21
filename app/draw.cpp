@@ -66,6 +66,10 @@ void App::layout() {
         viewR.padR = 0;
         view.setViewport(rcPaneL);
         viewR.setViewport(rcPaneR);
+    } else if (compare && mode == Mode::Model) {
+        float mid = std::round((rcViewport.left + rcViewport.right) / 2);
+        rcPaneL = R(rcViewport.left, rcViewport.top, mid - 1, rcViewport.bottom);
+        rcPaneR = R(mid + 1, rcViewport.top, rcViewport.right, rcViewport.bottom);
     } else {
         rcPaneL = rcViewport;
         rcPaneR = R(rcViewport.right, rcViewport.top, rcViewport.right, rcViewport.bottom);
@@ -76,7 +80,10 @@ void App::layout() {
 void App::paint() {
     if (!G.dc) return;
     layout();
-    if (mode == Mode::Model && mv.hasModel() && errorKey.empty())
+    if (mode == Mode::Model && compare && compareModels) {
+        if (mv.hasModel() && errorKey.empty()) mv.render((UINT)std::max(1.f, rw(rcPaneL) * G.scale), (UINT)std::max(1.f, rh(rcPaneL) * G.scale));
+        if (mvR.hasModel()) mvR.render((UINT)std::max(1.f, rw(rcPaneR) * G.scale), (UINT)std::max(1.f, rh(rcPaneR) * G.scale));
+    } else if (mode == Mode::Model && mv.hasModel() && errorKey.empty())
         mv.render((UINT)std::max(1.f, rw(rcViewport) * G.scale), (UINT)std::max(1.f, rh(rcViewport) * G.scale));
     if (!G.beginFrame()) return;
     view.step();
@@ -401,10 +408,44 @@ void App::drawCropOverlay() {
 
 // ======================================================================== 3D
 void App::drawModelStage() {
+    if (compare && compareModels) {
+        // two 3D panes with one shared camera
+        auto pane = [&](ModelView& m, const D2D1_RECT_F& r, uint32_t color, int idx, bool busy, const std::string& err) {
+            G.dc->PushAxisAlignedClip(r, D2D1_ANTIALIAS_MODE_ALIASED);
+            if (m.hasModel() && m.bitmap() && err.empty()) G.dc->DrawBitmap(m.bitmap(), r, 1, D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+            else if (busy) G.text(T("loading"), r, 12.5f, P.text2, 500, AC);
+            else if (!err.empty()) {
+                G.icon("box", cxOf(r), cyOf(r) - 18, 26, P.text3);
+                G.text(T(err.c_str()), R(r.left, cyOf(r), r.right, cyOf(r) + 24), 13, P.text2, 600, AC);
+            }
+            D2D1_COLOR_F c = rgba(color);
+            float bw = std::min(rw(r) - 48, 420.f);
+            G.fill(RW(cxOf(r) - bw / 2, r.bottom - 14, bw, 4), c, 2);
+            if (idx >= 0 && idx < (int)files.size()) {
+                std::wstring name = files[idx].name;
+                float tw = std::min(G.textWidth(name, 12, 600), bw - 24);
+                D2D1_RECT_F lr = RW(cxOf(r) - tw / 2 - 12, r.bottom - 44, tw + 24, 24);
+                G.fill(lr, P.glass, 7);
+                G.stroke(lr, P.glassLine, 7, 1);
+                G.circle(lr.left + 9, cyOf(lr), 3.5f, c);
+                G.textEllipsis(name, R(lr.left + 17, lr.top, lr.right - 6, lr.bottom), 12, P.text, 600);
+            }
+            G.dc->PopAxisAlignedClip();
+        };
+        pane(mv, rcPaneL, kCmpLeft, index, loading, errorKey);
+        pane(mvR, rcPaneR, kCmpRight, indexR, loadingR, errorR);
+        G.fill(R(rcPaneL.right, rcViewport.top, rcPaneR.left, rcViewport.bottom), P.line2);
+        if (mv.hasModel()) drawGizmo();
+        drawMeasure();
+        drawSectionBar();
+        return;
+    }
     if (!mv.hasModel() || !mv.bitmap() || !errorKey.empty()) return;
     G.dc->DrawBitmap(mv.bitmap(), rcViewport, 1, D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
     drawGizmo();
-    if (!loading) drawPrintButton();
+    drawMeasure();
+    drawSectionBar();
+    if (!loading && !section) drawPrintButton();
     if (!hintGone && !loading) {
         std::wstring h = T("v3d.hint");
         float w = G.textWidth(h, 11.5f, 500) + 42;
@@ -453,7 +494,7 @@ void App::drawGizmo() {
         auto& g = U.add(id, R(ex - 11, ey - 11, ex + 11, ey + 11));
         int ax = e.axis;
         bool ng = e.neg;
-        g.click = [this, ax, ng] { mv.viewModelAxis(ax, ng); hintGone = true; ensureTimer(); requestPaint(); };
+        g.click = [this, ax, ng] { allModels([ax, ng](ModelView& m) { m.viewModelAxis(ax, ng); }); hintGone = true; ensureTimer(); requestPaint(); };
         bool hot = U.isHot(id);
         if (!e.neg) {
             G.line(cx, cy, ex, ey, c, 2);
@@ -684,21 +725,27 @@ void App::drawToolbars() {
             toolbar(hid("tb.image"), it, cx, top);
         }
     } else if (mode == Mode::Model && mv.hasModel()) {
-        auto inv = [this] { mv.invalidate(); ensureTimer(); requestPaint(); };
+        auto inv = [this] { allModels([](ModelView& m) { m.invalidate(); }); ensureTimer(); requestPaint(); };
+        auto views = [this, inv](const char* n) { allModels([n](ModelView& m) { m.view(n); }); inv(); };
+        const bool twoModels = std::count_if(files.begin(), files.end(), [](const FileEntry& f) { return f.kind == Kind::Model; }) > 1;
         std::vector<TbItem> it = {
-            {TbItem::Btn, "refresh-ccw", "v3d.reset", [this, inv] { mv.view("iso"); inv(); }},
-            {TbItem::Btn, "view-front", "v3d.front", [this, inv] { mv.view("front"); inv(); }},
-            {TbItem::Btn, "view-top", "v3d.top", [this, inv] { mv.view("top"); inv(); }},
-            {TbItem::Btn, "view-right", "v3d.right", [this, inv] { mv.view("right"); inv(); }},
-            {TbItem::Btn, "view-iso", "v3d.iso", [this, inv] { mv.view("iso"); inv(); }},
+            {TbItem::Btn, "refresh-ccw", "v3d.reset", [views] { views("iso"); }},
+            {TbItem::Btn, "view-front", "v3d.front", [views] { views("front"); }},
+            {TbItem::Btn, "view-top", "v3d.top", [views] { views("top"); }},
+            {TbItem::Btn, "view-right", "v3d.right", [views] { views("right"); }},
+            {TbItem::Btn, "view-iso", "v3d.iso", [views] { views("iso"); }},
             {TbItem::Sep},
-            {TbItem::Btn, "wire", "v3d.wire", [this, inv] { mv.wire = !mv.wire; inv(); }, mv.wire},
-            {TbItem::Btn, "spline", "v3d.edges", [this, inv] { mv.setEdges(!mv.edges); inv(); }, mv.edges},
-            {TbItem::Btn, "sun-medium", "v3d.clay", [this, inv] { mv.clay = !mv.clay; inv(); }, mv.clay},
+            {TbItem::Btn, "wire", "v3d.wire", [this, inv] { bool v = !mv.wire; allModels([v](ModelView& m) { m.wire = v; }); inv(); }, mv.wire},
+            {TbItem::Btn, "spline", "v3d.edges", [this, inv] { bool v = !mv.edges; allModels([v](ModelView& m) { m.setEdges(v); }); inv(); }, mv.edges},
+            {TbItem::Btn, "sun-medium", "v3d.clay", [this, inv] { bool v = !mv.clay; allModels([v](ModelView& m) { m.clay = v; }); inv(); }, mv.clay},
             {TbItem::Sep},
-            {TbItem::Btn, "grid-3x3", "v3d.grid", [this, inv] { mv.grid = !mv.grid; inv(); }, mv.grid},
-            {TbItem::Btn, "bbox", "v3d.bbox", [this, inv] { mv.bbox = !mv.bbox; inv(); }, mv.bbox},
-            {TbItem::Btn, "orbit", "v3d.rotate", [this, inv] { mv.autoRotate = !mv.autoRotate; inv(); }, mv.autoRotate},
+            {TbItem::Btn, "section", "v3d.section", [this] { toggleSection(); }, section},
+            {TbItem::Btn, "ruler", "v3d.measure", [this] { toggleMeasure(); }, measuring},
+            {TbItem::Btn, "columns-2", "compare3d", [this] { toggleCompare(); }, compare, twoModels},
+            {TbItem::Sep},
+            {TbItem::Btn, "grid-3x3", "v3d.grid", [this, inv] { bool v = !mv.grid; allModels([v](ModelView& m) { m.grid = v; }); inv(); }, mv.grid},
+            {TbItem::Btn, "bbox", "v3d.bbox", [this, inv] { bool v = !mv.bbox; allModels([v](ModelView& m) { m.bbox = v; }); inv(); }, mv.bbox},
+            {TbItem::Btn, "orbit", "v3d.rotate", [this, inv] { bool v = !mv.autoRotate; allModels([v](ModelView& m) { m.autoRotate = v; }); inv(); }, mv.autoRotate},
             {TbItem::Sep},
             {TbItem::Btn, "camera", "v3d.shot", [this] { saveScreenshot(); }},
             {TbItem::Btn, "play", "slideshow", [this] { toggleSlideshow(); }, slideshow, files.size() > 1},
@@ -713,7 +760,7 @@ void App::drawToolbars() {
         U.glassPanel(R(b.left - 4, top, b.right + 4, top + 44), 14);
         auto& g = U.add(hid("tb.up"), b);
         g.tip = "v3d.upaxis";
-        g.click = [this, inv] { mv.toggleUp(); inv(); };
+        g.click = [this, inv] { allModels([](ModelView& m) { m.toggleUp(); }); if (section) applySection(); inv(); };
         if (U.isHot(g.id)) G.fill(b, P.hover, 9);
         G.text(mv.upAxis() == 2 ? L"Z↑" : L"Y↑", b, 12, P.text, 700, AC);
     }
@@ -1385,5 +1432,110 @@ void App::drawPicker() {
     };
     row(r.top + 64, L"HEX", hexOf(pickRgb), hid("pick.hex"));
     row(r.top + 108, L"RGB", rgbOf(pickRgb), hid("pick.rgb"));
+}
+} // namespace dv
+
+namespace dv {
+// ======================================================================== section bar
+void App::drawSectionBar() {
+    if (!section || !mv.hasModel()) return;
+    std::vector<std::wstring> axes = {L"X", L"Y", L"Z"};
+    const float sw = U.segmentedWidth(axes), sl = 220;
+    const float axisC = mv.sectionCoord(secAxis, secPos);
+    std::wstring val = fmtf(L"%s = ", axes[secAxis].c_str()) + lengthText(axisC);
+    const float vw = std::max(96.f, G.textWidth(val, 12, 600) + 8);
+    const float w = 12 + sw + 12 + sl + 12 + vw + 6 + 36 + 4 + 36 + 8;
+    D2D1_RECT_F r = RW(cxOf(rcViewport) - w / 2, rcViewport.bottom - 14 - 48 - (compare && compareModels ? 52 : 0), w, 48);
+    U.glassPanel(r, 14);
+    U.add(hid("sec.bar"), r);
+    float x = r.left + 12;
+    U.segmented(hid("sec.axis"), RW(x, r.top + 8, sw, 32), axes, secAxis, [this](int i) { secAxis = i; applySection(); });
+    x += sw + 12;
+    U.slider(hid("sec.pos"), RW(x, r.top + 8, sl, 32), secPos, 0.f, 1.f, [this](float v) { secPos = v; applySection(); });
+    x += sl + 12;
+    G.text(val, RW(x, r.top, vw, 48), 12, P.text, 600);
+    x += vw + 6;
+    U.toolButton(hid("sec.flip"), RW(x, r.top + 8, 36, 32), "flip-v", "sec.flip", [this] { secFlip = !secFlip; applySection(); }, secFlip);
+    x += 40;
+    U.toolButton(hid("sec.close"), RW(x, r.top + 8, 36, 32), "x", "sec.close", [this] { toggleSection(0); });
+}
+
+// ======================================================================== measurement overlay
+void App::drawMeasure() {
+    if (!measuring) return;
+    const bool two = compare && compareModels;
+    auto paneOf = [&](bool right) { return two ? (right ? rcPaneR : rcPaneL) : rcViewport; };
+    auto modelOf = [&](bool right) -> ModelView& { return right && two ? mvR : mv; };
+    auto toScreen = [&](const ModelView::Hit& h, bool right, float& x, float& y) {
+        const D2D1_RECT_F r = paneOf(right);
+        if (!modelOf(right).project(h.world, rw(r), rh(r), x, y)) return false;
+        x += r.left;
+        y += r.top;
+        return true;
+    };
+    const D2D1_COLOR_F line = rgba(0xFFC233), dark = rgba(0x000000, .55f);
+    auto marker = [&](float x, float y, int snap, bool big) {
+        const float s = big ? 6.f : 5.f;
+        if (snap == 1) { G.fill(RW(x - s - 1, y - s - 1, 2 * s + 2, 2 * s + 2), dark, 2); G.fill(RW(x - s, y - s, 2 * s, 2 * s), rgba(0x4ADE80), 2); }
+        else if (snap == 2) { G.circle(x, y, s + 1.5f, dark); G.circle(x, y, s, rgba(0x38BDF8)); }
+        else { G.circle(x, y, s - 1 + 1.5f, dark); G.circle(x, y, s - 1, line); }
+    };
+    auto chip = [&](const std::wstring& t, float x, float y) {
+        float tw = G.textWidth(t, 12, 700) + 16;
+        D2D1_RECT_F c = RW(x - tw / 2, y - 26, tw, 22);
+        G.fill(c, rgba(0x111214, .86f), 6);
+        G.text(t, c, 12, rgba(0xFFFFFF), 700, AC);
+    };
+    auto dist = [](const ModelView::Hit& a, const ModelView::Hit& b) {
+        float dx = b.model.x - a.model.x, dy = b.model.y - a.model.y, dz = b.model.z - a.model.z;
+        return std::sqrt(dx * dx + dy * dy + dz * dz);
+    };
+    for (auto& m : measures) {
+        float ax, ay, bx, by;
+        if (!toScreen(m.a, m.right, ax, ay) || !toScreen(m.b, m.right, bx, by)) continue;
+        G.dc->PushAxisAlignedClip(paneOf(m.right), D2D1_ANTIALIAS_MODE_ALIASED);
+        G.line(ax, ay, bx, by, dark, 4);
+        G.line(ax, ay, bx, by, line, 2);
+        marker(ax, ay, m.a.snap, false);
+        marker(bx, by, m.b.snap, false);
+        chip(lengthText(dist(m.a, m.b)), (ax + bx) / 2, (ay + by) / 2);
+        G.dc->PopAxisAlignedClip();
+    }
+    float px = 0, py = 0;
+    const bool pend = measA.ok && toScreen(measA, measARight, px, py);
+    if (pend) marker(px, py, measA.snap, true);
+    if (hover3d.ok && !U.overWidget(lastX, lastY)) {
+        float hx, hy;
+        if (toScreen(hover3d, hoverRight, hx, hy)) {
+            if (pend && hoverRight == measARight) {
+                G.line(px, py, hx, hy, line, 1.5f);
+                chip(lengthText(dist(measA, hover3d)), (px + hx) / 2, (py + hy) / 2);
+            }
+            marker(hx, hy, hover3d.snap, true);
+            static const char* snapKey[3] = {"meas.surface", "meas.vertex", "meas.edge"};
+            std::wstring t = T(snapKey[std::clamp(hover3d.snap, 0, 2)]);
+            float tw = G.textWidth(t, 11, 600) + 12;
+            D2D1_RECT_F c = RW(hx + 12, hy + 10, tw, 20);
+            G.fill(c, rgba(0x111214, .78f), 5);
+            G.text(t, c, 11, rgba(0xFFFFFF), 600, AC);
+        }
+    }
+    // result card for the last measurement
+    if (measures.empty()) return;
+    const Measurement& m = measures.back();
+    const float d = dist(m.a, m.b);
+    const float dx = m.b.model.x - m.a.model.x, dy = m.b.model.y - m.a.model.y, dz = m.b.model.z - m.a.model.z;
+    const float w = 292, h = 132;
+    D2D1_RECT_F r = RW(rcViewport.right - 16 - w, rcViewport.top + 70, w, h);
+    U.glassPanel(r, 14);
+    U.add(hid("meas.card"), r);
+    G.icon("ruler", r.left + 26, r.top + 28, 18, P.accent);
+    G.text(T("meas.title"), RW(r.left + 44, r.top + 14, 160, 28), 12.5f, P.text2, 600);
+    U.toolButton(hid("meas.copy"), RW(r.right - 76, r.top + 12, 30, 30), "copy", "copy", [this, d] { copyText(lengthText(d)); }, false, true, nullptr, 16);
+    U.toolButton(hid("meas.clear"), RW(r.right - 42, r.top + 12, 30, 30), "trash", "meas.clear", [this] { measures.clear(); measA.ok = false; requestPaint(); }, false, true, nullptr, 16);
+    G.text(lengthText(d), RW(r.left + 16, r.top + 46, w - 32, 34), 22, P.text, 700);
+    std::wstring sub = L"ΔX " + lengthText(std::fabs(dx)) + L"   ΔY " + lengthText(std::fabs(dy)) + L"   ΔZ " + lengthText(std::fabs(dz));
+    G.textEllipsis(sub, RW(r.left + 16, r.top + 84, w - 32, 22), 11.5f, P.text2, 500);
+    G.textEllipsis(fmtf(T("meas.count"), (int)measures.size()), RW(r.left + 16, r.top + 104, w - 32, 20), 11, P.text3, 500);
 }
 } // namespace dv

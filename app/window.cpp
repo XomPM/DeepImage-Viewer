@@ -334,6 +334,11 @@ LRESULT App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         onModelLoaded(err ? std::stoull(err->substr(0, err->find('|'))) : 0, (DvModel*)l, err ? err->substr(err->find('|') + 1) : "");
         return 0;
     }
+    case WM_APP_MODEL_R: {
+        std::unique_ptr<std::string> err((std::string*)w);
+        onModelLoadedR(err ? std::stoull(err->substr(0, err->find('|'))) : 0, (DvModel*)l, err ? err->substr(err->find('|') + 1) : "");
+        return 0;
+    }
     case WM_APP_THUMB: {
         ThumbResult r;
         bool any = false;
@@ -411,7 +416,7 @@ bool App::needsAnimation() {
     }
     if (view.animating() || (compare && viewR.animating())) return true;
     if (compare && (loadingR || docR.frameCount() > 1)) return true;
-    if (mode == Mode::Model && mv.animating()) return true;
+    if (mode == Mode::Model && (mv.animating() || (compare && compareModels && mvR.animating()))) return true;
     if (mode == Mode::Image && doc.frameCount() > 1 && !editMode) return true;
     if (loading) return true;
     if (!toasts.empty()) return true;
@@ -489,6 +494,8 @@ void App::onMouseDown(float x, float y, int button, WPARAM keys) {
         }
         if (button == 0 || button == 2) drag = DragKind::Pan;
     } else if (mode == Mode::Model && mv.hasModel()) {
+        downX = x;
+        downY = y;
         drag = button == 0 && !(keys & MK_SHIFT) ? DragKind::Orbit : DragKind::PanModel;
         if (!hintGone) { hintGone = true; requestPaint(); }
     }
@@ -500,6 +507,7 @@ void App::onMouseMove(float x, float y, WPARAM keys) {
     bool inVp = inside(rcViewport, x, y);
     if (inVp != mouseInViewport) { mouseInViewport = inVp; redraw = true; }
     if (drag == DragKind::None) pokeChrome(x, y);
+    if (measuring && drag == DragKind::None && mode == Mode::Model && !U.overWidget(x, y)) pickMeasure(x, y, false);
     if (picking) {
         bool was = hoverOk;
         hoverOk = inVp && !U.overWidget(x, y) && sampleAt(x, y, hoverRgb);
@@ -512,8 +520,8 @@ void App::onMouseMove(float x, float y, WPARAM keys) {
     case DragKind::Pan: eachView([&](ImageView& v, const D2D1_RECT_F&) { v.panBy(dx, dy); }); redraw = true; break;
     case DragKind::MoveShape: markup.moveTo(view.toImage(x, y)); redraw = true; break;
     case DragKind::Draw: markup.move(view.toImage(x, y), 1.f / view.s, (keys & MK_SHIFT) != 0); redraw = true; break;
-    case DragKind::Orbit: mv.orbit(dx, dy); redraw = true; break;
-    case DragKind::PanModel: mv.pan(dx, dy, rh(rcViewport)); redraw = true; break;
+    case DragKind::Orbit: allModels([&](ModelView& m) { m.orbit(dx, dy); }); redraw = true; break;
+    case DragKind::PanModel: allModels([&](ModelView& m) { m.pan(dx, dy, rh(rcViewport)); }); redraw = true; break;
     case DragKind::Crop: {
         auto p = view.toImage(x, y);
         auto q = view.toImage(x - dx, y - dy);
@@ -556,6 +564,8 @@ void App::onMouseUp(float x, float y, int button) {
     if (button == 0 && U.mouseUp(x, y)) { requestPaint(); ensureTimer(); return; }
     if (drag == DragKind::Draw) markup.end();
     if (drag == DragKind::MoveShape) markup.endMove();
+    // a click (not a drag) while measuring places a point
+    if (measuring && drag == DragKind::Orbit && std::hypot(x - downX, y - downY) < 4) pickMeasure(x, y, true);
     drag = DragKind::None;
     cropHandle = -1;
     requestPaint();
@@ -570,7 +580,8 @@ void App::onDoubleClick(float x, float y) {
         ensureTimer();
         requestPaint();
     } else if (mode == Mode::Model) {
-        mv.view("iso");
+        if (measuring) return; // double clicks are two measurement clicks
+        allModels([](ModelView& m) { m.view("iso"); });
         ensureTimer();
         requestPaint();
     }
@@ -590,7 +601,7 @@ void App::onWheel(float x, float y, float delta, bool ctrl, bool horizontal) {
         zoomViews(std::exp(delta / 120.f * 0.22f), x, y, false);
         requestPaint();
     } else if (mode == Mode::Model) {
-        mv.zoom(delta);
+        allModels([&](ModelView& m) { m.zoom(delta); });
         ensureTimer();
         requestPaint();
     }
@@ -707,14 +718,18 @@ bool App::onKey(UINT vk, bool down) {
     case VK_END: if (!files.empty()) guardUnsaved([this] { show((int)files.size() - 1); }); return done();
     case VK_OEM_PLUS: case VK_ADD: if (img) zoomViews(1.25f, cx, cy, true); return done();
     case VK_OEM_MINUS: case VK_SUBTRACT: if (img) zoomViews(0.8f, cx, cy, true); return done();
-    case '0': case VK_NUMPAD0: if (img) setFitMode(0); else if (mdl) mv.view("iso"); return done();
-    case '1': case VK_NUMPAD1: if (img) setFitMode(4); else if (mdl) mv.view("front"); return done();
-    case '2': if (mdl) mv.view("top"); return done();
-    case '3': if (mdl) mv.view("right"); return done();
+    case '0': case VK_NUMPAD0: if (img) setFitMode(0); else if (mdl) allModels([](ModelView& m) { m.view("iso"); }); return done();
+    case '1': case VK_NUMPAD1: if (img) setFitMode(4); else if (mdl) allModels([](ModelView& m) { m.view("front"); }); return done();
+    case '2': if (mdl) allModels([](ModelView& m) { m.view("top"); }); return done();
+    case '3': if (mdl) allModels([](ModelView& m) { m.view("right"); }); return done();
+    case 'D': if (mdl) toggleMeasure(); return done();
+    case 'X': if (mdl) toggleSection(); return done();
     case VK_F11: toggleFullscreen(); return done();
     case VK_ESCAPE:
         // cancel what is in progress first; minimise only when there is nothing to cancel
         if (picking) togglePicker(0);
+        else if (measuring) { if (measA.ok) { measA.ok = false; requestPaint(); } else toggleMeasure(0); }
+        else if (section) toggleSection(0);
         else if (slideshow) toggleSlideshow(0);
         else if (fullscreen) toggleFullscreen();
         else if (compare) toggleCompare(0);
@@ -731,14 +746,14 @@ bool App::onKey(UINT vk, bool down) {
     case 'F': if (img && !compare) { toggleAnnot(1); setTool(Tool::Hl); } return done();
     case 'E': if (img && !compare) toggleAnnot(); return done();
     case 'C': if (img && !compare) { if (!editMode) toggleEdit(1); beginCrop(); } return done();
-    case 'V': if (img) toggleCompare(); return done();
+    case 'V': if (img || mdl) toggleCompare(); return done();
     case 'T': S.filmstrip = !S.filmstrip; S.save(); return done();
-    case 'W': if (mdl) { mv.wire = !mv.wire; mv.invalidate(); } return done();
-    case 'G': if (mdl) { mv.grid = !mv.grid; mv.invalidate(); } return done();
-    case 'B': if (mdl) { mv.bbox = !mv.bbox; mv.invalidate(); } return done();
+    case 'W': if (mdl) { bool v = !mv.wire; allModels([v](ModelView& m) { m.wire = v; m.invalidate(); }); } return done();
+    case 'G': if (mdl) { bool v = !mv.grid; allModels([v](ModelView& m) { m.grid = v; m.invalidate(); }); } return done();
+    case 'B': if (mdl) { bool v = !mv.bbox; allModels([v](ModelView& m) { m.bbox = v; m.invalidate(); }); } return done();
     case VK_SPACE:
         if (slideshow) { slidePaused = !slidePaused; armSlideTimer(); toast(T(slidePaused ? "slide.paused" : "slide.resumed")); }
-        else if (mdl) { mv.autoRotate = !mv.autoRotate; mv.invalidate(); }
+        else if (mdl) { bool v = !mv.autoRotate; allModels([v](ModelView& m) { m.autoRotate = v; m.invalidate(); }); }
         else if (img && !editMode) guardUnsaved([this] { go(1); });
         return done();
     }

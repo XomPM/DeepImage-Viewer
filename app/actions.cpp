@@ -200,15 +200,16 @@ void App::goFolder(int d) {
         at = (int)(std::lower_bound(names.begin(), names.end(), me, [](const std::wstring& a, const std::wstring& b) { return StrCmpLogicalW(a.c_str(), b.c_str()) < 0; }) - names.begin());
         if (d > 0) --at;
     }
-    const bool wasCompare = compare;
+    const bool wasCompare = compare, wasModels = compareModels;
     for (int k = at + d; k >= 0 && k < (int)names.size(); k += d) {
         std::wstring c = parent + (parent.back() == L'\\' ? L"" : L"\\") + names[k];
         if (!openContainer(c)) continue;
         toast(names[k]);
         // compare mode carries over: first image on the left, second on the right
         if (wasCompare) {
+            compareModels = wasModels;
             const int l = nextImage(-1, 1), r = l >= 0 ? nextImage(l, 1) : -1;
-            if (r < 0) { if (compare) toggleCompare(0); toast(T("compare.need2")); }
+            if (r < 0) { if (compare) toggleCompare(0); compareModels = false; toast(T(wasModels ? "compare.need2m" : "compare.need2")); }
             else {
                 if (!compare) { compare = true; layout(); }
                 if (index != l) show(l);
@@ -239,7 +240,12 @@ void App::go(int d) {
 void App::show(int i, bool force) {
     if (i < 0 || i >= (int)files.size()) return;
     if (!force && i == index && !cur.path.empty()) return;
-    if (compare && files[i].kind != Kind::Image) toggleCompare(0);
+    if (compare && files[i].kind != (compareModels ? Kind::Model : Kind::Image)) toggleCompare(0);
+    // measurements on the left pane belong to the file that is being replaced
+    measures.erase(std::remove_if(measures.begin(), measures.end(), [](const Measurement& m) { return !m.right; }), measures.end());
+    if (!measARight) measA.ok = false;
+    hover3d.ok = false;
+    if (files[i].kind != Kind::Model) { measuring = false; section = false; measures.clear(); }
     index = i;
     cur = files[i];
     const uint64_t s = ++seq;
@@ -391,6 +397,7 @@ void App::onModelLoaded(uint64_t s, DvModel* m, const std::string& err) {
     ML.free(m);
     layout();
     mv.view("iso", false);
+    if (section) applySection();
     ensureTimer();
     requestPaint();
 }
@@ -504,31 +511,45 @@ void App::setFitMode(int m) {
     requestPaint();
 }
 
+// next file of the kind being compared (images, or 3D files while comparing models)
 int App::nextImage(int from, int dir) const {
+    const Kind want = compareModels ? Kind::Model : Kind::Image;
     for (int k = from + dir; k >= 0 && k < (int)files.size(); k += dir)
-        if (files[k].kind == Kind::Image) return k;
+        if (files[k].kind == want) return k;
     return -1;
+}
+
+void App::allModels(const std::function<void(ModelView&)>& f) {
+    f(mv);
+    if (compare && compareModels && mvR.hasModel()) f(mvR);
 }
 
 void App::toggleCompare(int on) {
     bool v = on < 0 ? !compare : on != 0;
     if (v == compare) return;
     if (v) {
-        if (mode != Mode::Image || !doc.loaded()) return;
+        const bool models = mode == Mode::Model && mv.hasModel();
+        if (!models && (mode != Mode::Image || !doc.loaded())) return;
+        compareModels = models;
         int r = nextImage(index, 1);
         int l = index;
         if (r < 0) { r = index; l = nextImage(index, -1); }
-        if (l < 0) { toast(T("compare.need2")); return; }
+        if (l < 0) { compareModels = false; toast(T(models ? "compare.need2m" : "compare.need2")); return; }
         if (annot) toggleAnnot(0);
         if (editMode) toggleEdit(0);
+        if (picking) togglePicker(0);
         compare = true;
         layout();
-        view.setViewport(rcPaneL);
+        if (!models) view.setViewport(rcPaneL);
         if (l != index) guardUnsaved([this, l] { show(l); });
         showRight(r);
         toast(T("compare.hint"));
     } else {
         compare = false;
+        compareModels = false;
+        mvR.clear();
+        measures.erase(std::remove_if(measures.begin(), measures.end(), [](const Measurement& m) { return m.right; }), measures.end());
+        if (measARight) measA.ok = false;
         docR.clear();
         indexR = -1;
         loadingR = false;
@@ -543,6 +564,7 @@ void App::toggleCompare(int on) {
 
 void App::showRight(int k) {
     if (k < 0 || k >= (int)files.size()) return;
+    if (compareModels) { showRightModel(k); return; }
     if (files[k].kind != Kind::Image) { toast(T("compare.imageonly"), true); return; }
     indexR = k;
     stripUser = false;
@@ -712,6 +734,120 @@ void App::togglePin() {
     layout();
     eachView([](ImageView& v, const D2D1_RECT_F&) { v.fit(true); });
     toast(T(S.pinChrome ? "pin.on" : "pin.off"));
+    requestPaint();
+}
+
+// ======================================================================== 3D compare
+void App::showRightModel(int k) {
+    if (k < 0 || k >= (int)files.size()) return;
+    if (files[k].kind != Kind::Model) { toast(T("compare.modelonly"), true); return; }
+    indexR = k;
+    stripUser = false;
+    const uint64_t s = ++seqR;
+    errorR.clear();
+    loadingR = true;
+    mvR.clear();
+    measures.erase(std::remove_if(measures.begin(), measures.end(), [](const Measurement& m) { return m.right; }), measures.end());
+    if (measARight) measA.ok = false;
+    const std::wstring path = files[k].path;
+    HWND hw = hwnd;
+    std::thread([s, path, hw] {
+        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        DvModel* m = nullptr;
+        std::string err;
+        if (!ML.ensure()) err = "load.failed";
+        else if (!arc::materialize(path)) err = "load.failed";
+        else {
+            std::lock_guard<std::mutex> g(ML.lock);
+            char e[512] = {};
+            m = ML.load(path.c_str(), e, sizeof e);
+            if (!m) err = "load.failed";
+        }
+        auto* msg = new std::string(std::to_string(s) + "|" + err);
+        if (!PostMessageW(hw, WM_APP_MODEL_R, (WPARAM)msg, (LPARAM)m)) { delete msg; if (m) ML.free(m); }
+        CoUninitialize();
+    }).detach();
+    requestThumbs();
+    ensureTimer();
+    requestPaint();
+}
+
+void App::onModelLoadedR(uint64_t s, DvModel* m, const std::string& err) {
+    if (s != seqR || !compare || !compareModels) { if (m) ML.free(m); return; }
+    loadingR = false;
+    if (!m) { mvR.clear(); errorR = err.empty() ? "load.failed" : err; requestPaint(); return; }
+    mvR.setTheme(P.dark, P.accent);
+    mvR.grid = mv.grid;
+    mvR.wire = mv.wire;
+    mvR.clay = mv.clay;
+    mvR.bbox = mv.bbox;
+    mvR.autoRotate = mv.autoRotate;
+    mvR.setModel(ML.info(m));
+    ML.free(m);
+    if (mv.edges) mvR.setEdges(true);
+    mvR.view("iso", false);
+    if (section) applySection();
+    ensureTimer();
+    requestPaint();
+}
+
+// ======================================================================== section view
+void App::applySection() {
+    allModels([this](ModelView& m) { m.setSection(section, secAxis, secPos, secFlip); });
+    ensureTimer();
+    requestPaint();
+}
+
+void App::toggleSection(int on) {
+    bool v = on < 0 ? !section : on != 0;
+    if (mode != Mode::Model || !mv.hasModel()) v = false;
+    if (v == section) return;
+    section = v;
+    hintGone = true;
+    applySection();
+    if (v) toast(T("sec.hint"));
+}
+
+// ======================================================================== measurement
+std::wstring App::lengthText(float v) const {
+    // millimetres when the file says so (or the format implies it), plain units otherwise
+    const std::wstring e = cur.ext;
+    const bool mm = mv.stats.units == 1 || e == L"stl" || e == L"3mf" || e == L"step" || e == L"stp" || e == L"iges" || e == L"igs" || e == L"amf";
+    const float a = std::fabs(v);
+    std::wstring n = a >= 1000 ? fmtf(L"%.1f", v) : a >= 100 ? fmtf(L"%.2f", v) : fmtf(L"%.3f", v);
+    return mm ? n + L" mm" : n;
+}
+
+void App::toggleMeasure(int on) {
+    bool v = on < 0 ? !measuring : on != 0;
+    if (mode != Mode::Model || !mv.hasModel()) v = false;
+    if (v == measuring) return;
+    measuring = v;
+    hintGone = true;
+    measA.ok = hover3d.ok = false;
+    if (!v) measures.clear();
+    else toast(T("meas.hint"));
+    requestPaint();
+}
+
+// hover (commit = false) or click (commit = true) at a window point
+void App::pickMeasure(float x, float y, bool commit) {
+    const bool right = compare && compareModels && inside(rcPaneR, x, y);
+    ModelView& m = right ? mvR : mv;
+    const D2D1_RECT_F r = compare && compareModels ? (right ? rcPaneR : rcPaneL) : rcViewport;
+    if (!m.hasModel() || !inside(r, x, y)) { if (hover3d.ok) { hover3d.ok = false; requestPaint(); } return; }
+    if (!commit && !m.pickable()) return;
+    auto h = m.pick(x - r.left, y - r.top, rw(r), rh(r));
+    hover3d = h;
+    hoverRight = right;
+    if (commit && h.ok) {
+        if (!measA.ok || measARight != right) { measA = h; measARight = right; }
+        else {
+            measures.push_back({measA, h, right});
+            if (measures.size() > 12) measures.erase(measures.begin());
+            measA.ok = false;
+        }
+    }
     requestPaint();
 }
 
