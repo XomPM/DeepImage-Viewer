@@ -1461,6 +1461,8 @@ void App::drawSectionBar() {
 }
 
 // ======================================================================== measurement overlay
+static const uint32_t kMeasColors[8] = {0xFFC233, 0x38BDF8, 0xF472B6, 0x4ADE80, 0xA78BFA, 0xFB923C, 0x2DD4BF, 0xF87171};
+
 void App::drawMeasure() {
     if (!measuring) return;
     const bool two = compare && compareModels;
@@ -1473,45 +1475,57 @@ void App::drawMeasure() {
         y += r.top;
         return true;
     };
-    const D2D1_COLOR_F line = rgba(0xFFC233), dark = rgba(0x000000, .55f);
-    auto marker = [&](float x, float y, int snap, bool big) {
+    const D2D1_COLOR_F dark = rgba(0x000000, .55f);
+    // shape tells the snap (corner square, edge circle, face dot); fill tells which measurement
+    auto marker = [&](float x, float y, int snap, D2D1_COLOR_F c, bool big) {
         const float s = big ? 6.f : 5.f;
-        if (snap == 1) { G.fill(RW(x - s - 1, y - s - 1, 2 * s + 2, 2 * s + 2), dark, 2); G.fill(RW(x - s, y - s, 2 * s, 2 * s), rgba(0x4ADE80), 2); }
-        else if (snap == 2) { G.circle(x, y, s + 1.5f, dark); G.circle(x, y, s, rgba(0x38BDF8)); }
-        else { G.circle(x, y, s - 1 + 1.5f, dark); G.circle(x, y, s - 1, line); }
+        if (snap == 1) { G.fill(RW(x - s - 1.5f, y - s - 1.5f, 2 * s + 3, 2 * s + 3), dark, 2); G.fill(RW(x - s, y - s, 2 * s, 2 * s), c, 2); }
+        else if (snap == 2) { G.circle(x, y, s + 1.5f, dark); G.circle(x, y, s, c); }
+        else { G.circle(x, y, s - 1 + 1.5f, dark); G.circle(x, y, s - 1, c); }
     };
-    auto chip = [&](const std::wstring& t, float x, float y) {
-        float tw = G.textWidth(t, 12, 700) + 16;
-        D2D1_RECT_F c = RW(x - tw / 2, y - 26, tw, 22);
-        G.fill(c, rgba(0x111214, .86f), 6);
-        G.text(t, c, 12, rgba(0xFFFFFF), 700, AC);
+    auto chip = [&](const std::wstring& t, float x, float y, D2D1_COLOR_F c, int num) {
+        std::wstring n = num > 0 ? fmtf(L"%d", num) : L"";
+        float nw = n.empty() ? 0 : 18;
+        float tw = G.textWidth(t, 12, 700) + 16 + nw;
+        D2D1_RECT_F r = RW(x - tw / 2, y - 26, tw, 22);
+        G.fill(r, rgba(0x111214, .88f), 6);
+        G.fill(RW(r.left, r.top, 4, 22), c, 2);
+        if (!n.empty()) {
+            G.circle(r.left + 15, cyOf(r), 7.5f, c);
+            G.text(n, RW(r.left + 7.5f, r.top, 15, 22), 10, rgba(0x111214), 800, AC);
+        }
+        G.text(t, RW(r.left + nw, r.top, tw - nw, 22), 12, rgba(0xFFFFFF), 700, AC);
     };
     auto dist = [](const ModelView::Hit& a, const ModelView::Hit& b) {
         float dx = b.model.x - a.model.x, dy = b.model.y - a.model.y, dz = b.model.z - a.model.z;
         return std::sqrt(dx * dx + dy * dy + dz * dz);
     };
-    for (auto& m : measures) {
+    for (size_t i = 0; i < measures.size(); ++i) {
+        const auto& m = measures[i];
+        const D2D1_COLOR_F c = rgba(kMeasColors[m.color % 8]);
         float ax, ay, bx, by;
         if (!toScreen(m.a, m.right, ax, ay) || !toScreen(m.b, m.right, bx, by)) continue;
         G.dc->PushAxisAlignedClip(paneOf(m.right), D2D1_ANTIALIAS_MODE_ALIASED);
         G.line(ax, ay, bx, by, dark, 4);
-        G.line(ax, ay, bx, by, line, 2);
-        marker(ax, ay, m.a.snap, false);
-        marker(bx, by, m.b.snap, false);
-        chip(lengthText(dist(m.a, m.b)), (ax + bx) / 2, (ay + by) / 2);
+        G.line(ax, ay, bx, by, c, 2);
+        marker(ax, ay, m.a.snap, c, false);
+        marker(bx, by, m.b.snap, c, false);
+        chip(lengthText(dist(m.a, m.b)), (ax + bx) / 2, (ay + by) / 2, c, (int)i + 1);
         G.dc->PopAxisAlignedClip();
     }
+    // the one being placed uses the next colour
+    const D2D1_COLOR_F nextC = rgba(kMeasColors[measColor % 8]);
     float px = 0, py = 0;
     const bool pend = measA.ok && toScreen(measA, measARight, px, py);
-    if (pend) marker(px, py, measA.snap, true);
+    if (pend) marker(px, py, measA.snap, nextC, true);
     if (hover3d.ok && !U.overWidget(lastX, lastY)) {
         float hx, hy;
         if (toScreen(hover3d, hoverRight, hx, hy)) {
             if (pend && hoverRight == measARight) {
-                G.line(px, py, hx, hy, line, 1.5f);
-                chip(lengthText(dist(measA, hover3d)), (px + hx) / 2, (py + hy) / 2);
+                G.line(px, py, hx, hy, nextC, 1.5f);
+                chip(lengthText(dist(measA, hover3d)), (px + hx) / 2, (py + hy) / 2, nextC, 0);
             }
-            marker(hx, hy, hover3d.snap, true);
+            marker(hx, hy, hover3d.snap, pend ? nextC : rgba(0xFFFFFF), true);
             static const char* snapKey[3] = {"meas.surface", "meas.vertex", "meas.edge"};
             std::wstring t = T(snapKey[std::clamp(hover3d.snap, 0, 2)]);
             float tw = G.textWidth(t, 11, 600) + 12;
@@ -1520,22 +1534,47 @@ void App::drawMeasure() {
             G.text(t, c, 11, rgba(0xFFFFFF), 600, AC);
         }
     }
-    // result card for the last measurement
+    // list of every measurement, each row in its own colour
     if (measures.empty()) return;
-    const Measurement& m = measures.back();
-    const float d = dist(m.a, m.b);
-    const float dx = m.b.model.x - m.a.model.x, dy = m.b.model.y - m.a.model.y, dz = m.b.model.z - m.a.model.z;
-    const float w = 292, h = 132;
+    const float w = 330, head = 48, rowH = 52;
+    const float maxH = rh(rcViewport) - 70 - 80;
+    const int fit = std::max(1, (int)((maxH - head - 10) / rowH));
+    const int n = (int)measures.size(), first = std::max(0, n - fit); // newest stay visible
+    const float h = head + rowH * (n - first) + 10;
     D2D1_RECT_F r = RW(rcViewport.right - 16 - w, rcViewport.top + 70, w, h);
     U.glassPanel(r, 14);
     U.add(hid("meas.card"), r);
-    G.icon("ruler", r.left + 26, r.top + 28, 18, P.accent);
-    G.text(T("meas.title"), RW(r.left + 44, r.top + 14, 160, 28), 12.5f, P.text2, 600);
-    U.toolButton(hid("meas.copy"), RW(r.right - 76, r.top + 12, 30, 30), "copy", "copy", [this, d] { copyText(lengthText(d)); }, false, true, nullptr, 16);
-    U.toolButton(hid("meas.clear"), RW(r.right - 42, r.top + 12, 30, 30), "trash", "meas.clear", [this] { measures.clear(); measA.ok = false; requestPaint(); }, false, true, nullptr, 16);
-    G.text(lengthText(d), RW(r.left + 16, r.top + 46, w - 32, 34), 22, P.text, 700);
-    std::wstring sub = L"ΔX " + lengthText(std::fabs(dx)) + L"   ΔY " + lengthText(std::fabs(dy)) + L"   ΔZ " + lengthText(std::fabs(dz));
-    G.textEllipsis(sub, RW(r.left + 16, r.top + 84, w - 32, 22), 11.5f, P.text2, 500);
-    G.textEllipsis(fmtf(T("meas.count"), (int)measures.size()), RW(r.left + 16, r.top + 104, w - 32, 20), 11, P.text3, 500);
+    G.icon("ruler", r.left + 24, r.top + 24, 17, P.accent);
+    G.text(fmtf(T("meas.list"), n), RW(r.left + 40, r.top + 10, 180, 28), 12.5f, P.text, 600);
+    U.toolButton(hid("meas.clear"), RW(r.right - 42, r.top + 9, 30, 30), "trash", "meas.clear",
+                 [this] { measures.clear(); measA.ok = false; measColor = 0; requestPaint(); }, false, true, nullptr, 16);
+    float y = r.top + head;
+    for (int i = first; i < n; ++i) {
+        const auto& m = measures[i];
+        const D2D1_COLOR_F c = rgba(kMeasColors[m.color % 8]);
+        const float d = dist(m.a, m.b);
+        const float dx = std::fabs(m.b.model.x - m.a.model.x), dy = std::fabs(m.b.model.y - m.a.model.y), dz = std::fabs(m.b.model.z - m.a.model.z);
+        D2D1_RECT_F row = RW(r.left + 8, y, w - 16, rowH - 4);
+        G.fill(row, P.hover, 9);
+        G.fill(RW(row.left, row.top + 6, 4, rowH - 16), c, 2);
+        G.circle(row.left + 22, row.top + 17, 9, c);
+        G.text(fmtf(L"%d", i + 1), RW(row.left + 13, row.top + 8, 18, 18), 10.5f, rgba(0x111214), 800, AC);
+        std::wstring len = lengthText(d);
+        G.text(len, RW(row.left + 38, row.top + 4, 170, 24), 15, P.text, 700);
+        if (two) G.text(m.right ? L"R" : L"L", RW(row.left + 40 + G.textWidth(len, 15, 700) + 6, row.top + 4, 16, 24), 10.5f, rgba(m.right ? kCmpRight : kCmpLeft), 800);
+        // unit once at the end: "ΔX 0.000  ΔY 27.369  ΔZ 2.721 mm"
+        auto num = [this](float v) { std::wstring t = lengthText(v); size_t k = t.find(L" mm"); return k == std::wstring::npos ? t : t.substr(0, k); };
+        const bool mm = len.size() > 3 && len.compare(len.size() - 3, 3, L" mm") == 0;
+        std::wstring sub = L"ΔX " + num(dx) + L"  ΔY " + num(dy) + L"  ΔZ " + num(dz) + (mm ? L" mm" : L"");
+        G.textEllipsis(sub, RW(row.left + 38, row.top + 26, w - 16 - 38 - 70, 18), 10.5f, P.text2, 500);
+        U.toolButton(hid("meas.copy", m.color), RW(row.right - 66, row.top + 9, 28, 28), "copy", "copy", [this, len] { copyText(len); }, false, true, nullptr, 15);
+        const int col = m.color;
+        U.toolButton(hid("meas.del", m.color), RW(row.right - 34, row.top + 9, 28, 28), "x", "meas.del",
+                     [this, col] {
+                         measures.erase(std::remove_if(measures.begin(), measures.end(), [col](const Measurement& q) { return q.color == col; }), measures.end());
+                         requestPaint();
+                     }, false, true, nullptr, 15);
+        y += rowH;
+    }
 }
 } // namespace dv

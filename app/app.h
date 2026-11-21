@@ -107,7 +107,8 @@ public:
     void drawSectionBar();
     // distance measurement
     bool measuring = false;
-    struct Measurement { ModelView::Hit a, b; bool right = false; };
+    struct Measurement { ModelView::Hit a, b; bool right = false; int color = 0; };
+    int measColor = 0; // next colour in the measurement palette
     std::vector<Measurement> measures;
     ModelView::Hit measA, hover3d;
     bool measARight = false, hoverRight = false;

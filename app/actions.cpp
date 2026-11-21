@@ -825,7 +825,7 @@ void App::toggleMeasure(int on) {
     measuring = v;
     hintGone = true;
     measA.ok = hover3d.ok = false;
-    if (!v) measures.clear();
+    if (!v) { measures.clear(); measColor = 0; }
     else toast(T("meas.hint"));
     requestPaint();
 }
@@ -843,7 +843,7 @@ void App::pickMeasure(float x, float y, bool commit) {
     if (commit && h.ok) {
         if (!measA.ok || measARight != right) { measA = h; measARight = right; }
         else {
-            measures.push_back({measA, h, right});
+            measures.push_back({measA, h, right, measColor++});
             if (measures.size() > 12) measures.erase(measures.begin());
             measA.ok = false;
         }
