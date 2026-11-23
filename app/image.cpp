@@ -13,6 +13,7 @@
 #define STBI_ONLY_PSD
 #define STBI_ONLY_PNM
 #define STBI_ONLY_HDR
+#define STBI_ONLY_PNG
 #include "../third_party/stb_image.h"
 
 namespace dv {
@@ -233,8 +234,36 @@ bool decodeStb(IWICImagingFactory* wic, const std::wstring& path, DecodedImage& 
     out.height = h;
     out.bitDepth = comp * 8;
     std::wstring e = extOf(path);
-    out.format = e == L"tga" ? L"TGA" : e == L"psd" ? L"PSD" : e == L"hdr" ? L"HDR" : L"PNM";
+    out.format = e == L"tga" ? L"TGA" : e == L"psd" ? L"PSD" : e == L"hdr" ? L"HDR" : e == L"png" ? L"PNG" : L"PNM";
+    if (e == L"png") out.container = GUID_ContainerFormatPng;
     return true;
+}
+
+// Some scanners and editors write the whole PNG picture as one huge IDAT chunk. Windows' PNG
+// decoder hands the picture out in strips and seems to restart that chunk for every strip, so
+// such files take ages (an A4 300 dpi scan with a 4.5 MB IDAT sat on "Loading"). Spot them from
+// the chunk headers alone.
+bool pngHasGiantIdat(const std::wstring& path) {
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    bool giant = false;
+    uint8_t sig[8];
+    DWORD n = 0;
+    if (ReadFile(h, sig, 8, &n, nullptr) && n == 8 && !memcmp(sig, "\x89PNG\r\n\x1a\n", 8)) {
+        LARGE_INTEGER pos{};
+        pos.QuadPart = 8;
+        for (int guard = 0; guard < 100000; ++guard) {
+            uint8_t hd[8];
+            if (!ReadFile(h, hd, 8, &n, nullptr) || n != 8) break;
+            const uint32_t len = (uint32_t)hd[0] << 24 | (uint32_t)hd[1] << 16 | (uint32_t)hd[2] << 8 | hd[3];
+            if (!memcmp(hd + 4, "IDAT", 4)) { giant = len > (1u << 20); break; } // the first IDAT tells the writer's habit
+            if (!memcmp(hd + 4, "IEND", 4)) break;
+            pos.QuadPart += 12 + (LONGLONG)len;
+            if (!SetFilePointerEx(h, pos, nullptr, FILE_BEGIN)) break;
+        }
+    }
+    CloseHandle(h);
+    return giant;
 }
 
 } // namespace
@@ -450,6 +479,7 @@ bool decodeImageFile(const std::wstring& path, DecodedImage& out, std::string& e
     if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic)))) return false;
     if (ext == L"tga" || ext == L"psd" || ext == L"ppm" || ext == L"pgm" || ext == L"pnm" || ext == L"hdr")
         return decodeStb(wic.Get(), path, out);
+    if (lower(ext) == L"png" && pngHasGiantIdat(path) && decodeStb(wic.Get(), path, out)) return true;
     if (ext == L"gcode" || ext == L"gco" || ext == L"bgcode") return decodeGcode(wic.Get(), path, out, err);
     ComPtr<IWICBitmapDecoder> dec;
     HRESULT h = wic->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &dec);
