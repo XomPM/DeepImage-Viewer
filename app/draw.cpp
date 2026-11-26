@@ -1,6 +1,7 @@
 // DeepImage Viewer — rendering of the whole interface
 // Copyright (c) DMIND <dmind114@gmail.com>. MIT License.
 #include "app.h"
+#include "bgremove.h"
 #include "i18n.h"
 #include "settings.h"
 #include <commdlg.h>
@@ -111,6 +112,7 @@ void App::paint() {
     drawFilmstrip();
     drawTitlebar();
     if (mode != Mode::Empty && !modal.kind) { drawSlidePill(); drawPicker(); }
+    if (bgBusy) drawBgBusy();
     drawToasts();
     if (modal.kind) {
         U.layer = 10;
@@ -139,7 +141,7 @@ void App::drawBackground() {
         return;
     }
     G.fill(rcViewport, P.canvas);
-    if (mode == Mode::Image && S.imageBg == 1) {
+    if (mode == Mode::Image && (S.imageBg == 1 || bgCutout)) {
         static ComPtr<ID2D1BitmapBrush> chk;
         static bool chkDark = false;
         if (!chk || chkDark != P.dark) {
@@ -675,6 +677,7 @@ void App::drawToolbars() {
             std::vector<TbItem> it = {
                 {TbItem::Btn, "crop", "edit.crop", [this] { beginCrop(); }, panel == EditPanel::Crop, true, TL("edit.crop")},
                 {TbItem::Btn, "scaling", "edit.resize", [this] { openResize(); }, false, true, TL("edit.resize")},
+                {TbItem::Btn, "wand-sparkles", "edit.bg", [this] { removeBackground(); }, bgBusy, panel == EditPanel::None && !bgBusy, TL("edit.bg")},
                 {TbItem::Btn, "sliders-horizontal", "edit.adjust", [this] { panel == EditPanel::Adjust ? (void)(panel = EditPanel::None, adj = Adjust{}, fxActive = false) : beginAdjust(); requestPaint(); },
                  panel == EditPanel::Adjust, true, TL("edit.adjust")},
                 {TbItem::Sep},
@@ -1575,6 +1578,33 @@ void App::drawMeasure() {
                          requestPaint();
                      }, false, true, nullptr, 15);
         y += rowH;
+    }
+}
+} // namespace dv
+
+namespace dv {
+// ======================================================================== background removal progress
+void App::drawBgBusy() {
+    const float w = 320, h = bgDownloading ? 112 : 92;
+    D2D1_RECT_F r = RW(cxOf(rcViewport) - w / 2, cyOf(rcViewport) - h / 2, w, h);
+    U.glassPanel(r, 14);
+    U.add(hid("bg.busy"), r);
+    // spinner
+    const float t = (GetTickCount() % 1200) / 1200.f * 6.2831853f, cx = r.left + 30, cy = r.top + 30;
+    for (int i = 0; i < 8; ++i) {
+        float a = t + i * 0.785f;
+        G.circle(cx + std::cos(a) * 9, cy + std::sin(a) * 9, 2.2f, D2D1::ColorF(P.accent.r, P.accent.g, P.accent.b, (i + 1) / 8.f));
+    }
+    const wchar_t* title = bgDownloading ? T("bg.downloading") : T("bg.working");
+    G.text(title, RW(r.left + 54, r.top + 14, w - 70, 32), 13, P.text, 600);
+    if (bgDownloading) {
+        D2D1_RECT_F bar = RW(r.left + 20, r.top + 58, w - 40, 6);
+        G.fill(bar, P.line2, 3);
+        G.fill(RW(bar.left, bar.top, rw(bar) * bgProgress, 6), P.accent, 3);
+        G.text(fmtf(L"%.0f%% · %.0f / %.0f MB", bgProgress * 100, bgProgress * bg::kModelBytes / 1048576.0, bg::kModelBytes / 1048576.0), RW(r.left + 20, r.top + 70, 200, 28), 11, P.text2, 500);
+        U.textButton(hid("bg.cancel"), RW(r.right - 88, r.top + 70, 72, 28), T("cancel"), [this] { if (bgCancel) bgCancel->store(true); });
+    } else {
+        G.text(T("bg.working.sub"), RW(r.left + 54, r.top + 44, w - 70, 30), 11, P.text2, 500);
     }
 }
 } // namespace dv

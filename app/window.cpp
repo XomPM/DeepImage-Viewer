@@ -334,6 +334,20 @@ LRESULT App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         onModelLoaded(err ? std::stoull(err->substr(0, err->find('|'))) : 0, (DvModel*)l, err ? err->substr(err->find('|') + 1) : "");
         return 0;
     }
+    case WM_APP_BG: {
+        struct Result { std::string err; std::wstring device; DWORD ms; };
+        std::unique_ptr<std::pair<uint64_t, Result*>> msg((std::pair<uint64_t, Result*>*)w);
+        std::unique_ptr<Result> r(msg->second);
+        onBackgroundRemoved(msg->first, (IWICBitmap*)l, r->err, r->device, r->ms);
+        return 0;
+    }
+    case WM_APP_BG_PROGRESS:
+        if ((uint64_t)w == bgSeq && bgBusy) {
+            if ((int)l < 0) bgDownloading = false;
+            else bgProgress = (int)l / 1000.f;
+            requestPaint();
+        }
+        return 0;
     case WM_APP_MODEL_R: {
         std::unique_ptr<std::string> err((std::string*)w);
         onModelLoadedR(err ? std::stoull(err->substr(0, err->find('|'))) : 0, (DvModel*)l, err ? err->substr(err->find('|') + 1) : "");
@@ -416,6 +430,7 @@ bool App::needsAnimation() {
     }
     if (view.animating() || (compare && viewR.animating())) return true;
     if (compare && (loadingR || docR.frameCount() > 1)) return true;
+    if (bgBusy) return true; // spinner
     if (mode == Mode::Model && (mv.animating() || (compare && compareModels && mvR.animating()))) return true;
     if (mode == Mode::Image && doc.frameCount() > 1 && !editMode) return true;
     if (loading) return true;
@@ -724,6 +739,7 @@ bool App::onKey(UINT vk, bool down) {
     case '3': if (mdl) allModels([](ModelView& m) { m.view("right"); }); return done();
     case 'D': if (mdl) toggleMeasure(); return done();
     case 'X': if (mdl) toggleSection(); return done();
+    case 'B': if (img) removeBackground(); else if (mdl) { bool v = !mv.bbox; allModels([v](ModelView& m) { m.bbox = v; m.invalidate(); }); } return done();
     case VK_F11: toggleFullscreen(); return done();
     case VK_ESCAPE:
         // cancel what is in progress first; minimise only when there is nothing to cancel
@@ -750,7 +766,6 @@ bool App::onKey(UINT vk, bool down) {
     case 'T': S.filmstrip = !S.filmstrip; S.save(); return done();
     case 'W': if (mdl) { bool v = !mv.wire; allModels([v](ModelView& m) { m.wire = v; m.invalidate(); }); } return done();
     case 'G': if (mdl) { bool v = !mv.grid; allModels([v](ModelView& m) { m.grid = v; m.invalidate(); }); } return done();
-    case 'B': if (mdl) { bool v = !mv.bbox; allModels([v](ModelView& m) { m.bbox = v; m.invalidate(); }); } return done();
     case VK_SPACE:
         if (slideshow) { slidePaused = !slidePaused; armSlideTimer(); toast(T(slidePaused ? "slide.paused" : "slide.resumed")); }
         else if (mdl) { bool v = !mv.autoRotate; allModels([v](ModelView& m) { m.autoRotate = v; m.invalidate(); }); }

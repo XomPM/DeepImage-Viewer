@@ -14,7 +14,7 @@
 
 namespace dv {
 
-enum : UINT { WM_APP_IMAGE = WM_APP + 1, WM_APP_MODEL, WM_APP_THUMB, WM_APP_PRELOAD, WM_APP_IMAGE_R, WM_APP_MODEL_R };
+enum : UINT { WM_APP_IMAGE = WM_APP + 1, WM_APP_MODEL, WM_APP_THUMB, WM_APP_PRELOAD, WM_APP_IMAGE_R, WM_APP_MODEL_R, WM_APP_BG, WM_APP_BG_PROGRESS };
 
 struct FileEntry {
     std::wstring path, name, ext;
@@ -113,6 +113,16 @@ public:
     ModelView::Hit measA, hover3d;
     bool measARight = false, hoverRight = false;
     void toggleMeasure(int on = -1);
+    // AI background removal
+    bool bgBusy = false, bgDownloading = false;
+    bool bgCutout = false; // current picture had its background removed: show the checkerboard
+    float bgProgress = 0;
+    uint64_t bgSeq = 0;
+    std::shared_ptr<std::atomic<bool>> bgCancel;
+    void removeBackground();
+    void startBackgroundRemoval(bool download);
+    void onBackgroundRemoved(uint64_t seq, IWICBitmap* out, const std::string& err, const std::wstring& device, DWORD ms);
+    void drawBgBusy();
     void pickMeasure(float x, float y, bool commit);
     void drawMeasure();
     std::wstring lengthText(float v) const;

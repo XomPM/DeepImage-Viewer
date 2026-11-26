@@ -45,6 +45,7 @@ C++20, Windows 전용 API. Linux에서 **llvm-mingw**로 x64·ARM64 교차 빌�
 | `app/window.cpp` | 창 프로시저, 마우스/휠/키보드(단축키 표는 3절) |
 | `app/actions.cpp` | 파일 열기·이동, 프리로드, 비교 모드, 맞춤 모드, 편집, 저장, `open3dPrint` |
 | `app/imageview.*` | 보기 변환(맞춤 5종) + Markup(펜·형광펜·도형·모자이크·마스크·선택이동) |
+| `app/bgremove.*` | AI 배경 제거: onnxruntime.dll/DirectML.dll 동적 로드, BiRefNet lite 1024² 추론, 모델 다운로드(WinHTTP + SHA-256) |
 | `app/thumbs.cpp` | 썸네일 서비스(2스레드) + **디스크 캐시** |
 | `app/gfx.cpp` | D2D/DWrite/SVG 아이콘 (아이콘 root svg width/height = 요청 크기 — 아니면 24px로 그려지는 버그) |
 | `app/ui.cpp` | 위젯(toolButton, segmented, slider, swatch, toggle) — 휠은 맨 위 "휠 처리 영역"을 찾아 전달 |
@@ -110,6 +111,14 @@ C++20, Windows 전용 API. Linux에서 **llvm-mingw**로 x64·ARM64 교차 빌�
 ### 썸네일 문제 해결 도구 (1.0.2)
 - `docs/thumbnail-help/` : `THUMBNAIL-HELP.md`(한/영 안내), `ThumbnailFix.cmd` → `ThumbnailFix.ps1`(UTF-8 BOM, CRLF). 확장자별 `AssocQueryString(SHELLEXTENSION)` 결과와 담당 클래스 이름, 64비트 등록 여부(32비트 전용 = 깨짐), UserChoice ProgID 표시 → `ThumbnailReport.txt` 저장 → [C] 탐색기 종료·`thumbcache_*.db` 삭제·재시작.
 - 설치 폴더 `Help\`와 포터블 zip에 포함, 릴리스 자산 `DeepImage-Thumbnail-Help.zip` 별도. 설정 창 하단 **썸네일 문제 해결** 버튼 → 설치 폴더 Help 열기(없으면 GitHub 문서). 제거기는 Help 파일·폴더도 지운다.
+
+### 배경 제거 (1.0.9)
+- 편집 툴바 "배경 제거"(wand-sparkles) 또는 이미지 모드 B 키(3D 모드에서 B는 여전히 바운딩 박스). 결과는 `pushEdit` → 되돌리기 가능, 컨테이너 PNG, `bgCutout`이면 체크무늬 배경.
+- 모델: BiRefNet general lite(bb_swin_v1_tiny, MIT, 224,005,088 B, SHA-256 `5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333`). 처음 사용 시 확인 후 `%LOCALAPPDATA%\DMIND\DeepImage Viewer\Models\birefnet-lite.onnx`로 내려받음. URL 순서: ① 우리 `releases/download/models-v1/birefnet-lite.onnx`(아직 없음 — 올리면 rembg 의존 제거) ② `danielgatis/rembg` v0.0.0 asset.
+- 런타임: ONNX Runtime(NuGet Microsoft.ML.OnnxRuntime.DirectML) + DirectML.dll을 exe 옆에 배포(설치·포터블·MSIX 모두). 헤더는 `third_party/onnxruntime/include`. `dml_provider_factory.h`는 SAL 때문에 mingw에서 안 됨 → `OrtDmlApi` 최소 구조체 직접 선언.
+- GPU 우선(D3D12 FL 11 확인) → 실패/크래시 시 CPU. `gpu-trial` 표식 파일로 지난번 GPU 크래시를 감지해 건너뜀, `DEEPIMAGE_BG_CPU=1`이면 CPU 강제. CPU 세션은 메모리 아레나·패턴 끔.
+- CPU 1024² 추론 최대 메모리 약 5.3GB(최적화 수준과 무관), Wine 2코어 19.9초. 설치 제거 시 Models 폴더 삭제.
+- 컨테이너에서 NuGet/HF/PyPI는 막힘 → 패키지는 사용자가 `D:\DeepImage Viewer\deps`에 넣고 스테이징.
 
 ### 정보 창
 - 버전 / 제작 **DMIND**(링크 → `https://www.godgok.com/3dmind/`) / 문의 메일 / **GitHub**(링크 → `https://github.com/XomPM/DeepImage-Viewer`). 링크는 강조색 + hover 밑줄 + 손 커서.
@@ -206,6 +215,7 @@ python3 package.py fonts        # → dist/
 - Windows OPC API는 슬라이서 3MF를 거부할 수 있음 → miniz로 직접 읽기.
 - Wine 테스트: `LANG=C.UTF-8`이 없으면 한글 파일 이름 생성이 실패(코드 문제 아님). Xvfb + 자체 `inp.exe`(keybd_event/SetCursorPos)로 입력, 화면은 한 단계 늦게 갱신됨.
 - **EXIF 회전에 `IWICBitmapFlipRotator`를 디코더에 직접 연결 금지** (1.0.4): 픽셀 단위로 요청 → JPEG는 줄 단위 해독이라 n² 동작, 휴대폰 사진(가로 저장 + 방향 6)이 "불러오는 중"에서 영원히 멈춤. 해독(`toPbgra`) 후 `applyOrientation`(메모리 회전)으로 처리. Wine의 FlipRotator는 이 문제가 없어 **Wine에서는 재현 안 됨**.
+- ORT CPU 추론 테스트 중 OOM kill(컨테이너 8GB) — 다른 무거운 프로세스와 동시에 돌리지 말 것.
 - 설치 파일을 같은 이름으로 덮어쓰면 사용자가 예전 빌드를 설치했을 수 있다 → 보고 시 "이번 파일로 다시 설치" 명시.
 
 ## 8. 버전 기록
@@ -219,3 +229,4 @@ python3 package.py fonts        # → dist/
 - **1.0.6** (2026-11-21): 1.0.5 + 비교 모드 슬라이드쇼 두 장씩 수정. 1.0.5는 Store 인증을 이미 통과해 교체 불가 → Store 버전은 항상 올려야 함(MSIX revision은 0 고정). GitHub는 v1.0.5를 건너뛰고 v1.0.6.
 - **1.0.7** (2026-11-21): 3D 단면(X, 셰이더 clip + 안쪽 면을 단면색으로 칠해 캡 표현, `ModelView::setSection`), 거리 측정(D, CPU 레이캐스트 `ModelView::pick` + 꼭짓점 10px/모서리 7px 스냅, 측정값은 파일 좌표계 기준, 단위는 units==1 또는 stl/3mf/step/iges/amf면 mm, 측정마다 8색 팔레트 `kMeasColors`·번호, 카드에 전체 목록과 줄별 복사·삭제), 3D 비교(V, `mvR` + WM_APP_MODEL_R, `compareModels`일 때 nextImage가 3D 파일을 고름, 카메라·표시 설정은 `allModels`로 양쪽 동기화).
 - **1.0.8** (2026-11-23): 첫 IDAT 청크가 1MB를 넘는 PNG(스캐너가 그림 전체를 한 청크로 저장)는 WIC 대신 stb_image로 해독(`pngHasGiantIdat`). WIC가 띠마다 그 청크를 다시 푸는 것으로 보여 A4 300dpi 스캔이 "불러오는 중"에 오래 멈췄음. Wine에서는 재현 안 됨(실제 Windows에서 확인 필요).
+- **1.0.9** (2026-11-26): AI 배경 제거(B) — BiRefNet lite + ONNX Runtime(DirectML → CPU 대체), 첫 사용 시 모델 다운로드. 설치 파일 약 15MB 증가. 실제 Windows의 GPU 경로·다운로드는 사용자 확인 필요.

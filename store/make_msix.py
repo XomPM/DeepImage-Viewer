@@ -131,7 +131,7 @@ for arch, b in (('x64', 'x64'), ('arm64', 'arm64')):
     os.makedirs(os.path.join(d, 'Assets'))
     os.makedirs(os.path.join(d, 'fonts'))
     os.makedirs(os.path.join(d, 'Help'))
-    for f in ('DeepImage.exe', 'dvmodel.dll', 'DeepImageThumbs.dll'):
+    for f in ('DeepImage.exe', 'dvmodel.dll', 'DeepImageThumbs.dll', 'onnxruntime.dll', 'DirectML.dll'):
         shutil.copy(os.path.join(root, 'build', b, f), d)
     for f in ('Pretendard-Regular.otf', 'Pretendard-Medium.otf', 'Pretendard-SemiBold.otf'):
         shutil.copy(os.path.join(args.fonts, f), os.path.join(d, 'fonts'))

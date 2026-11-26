@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # DeepImage Viewer — build the release installers (x64, ARM64) and portable zips
 import os, struct, sys, zipfile
-VERSION = '1.0.8'
+VERSION = '1.0.9'
 root = os.path.dirname(os.path.abspath(__file__))
 fonts = sys.argv[1] if len(sys.argv) > 1 else os.path.join(root, 'fonts')
 dist = os.path.join(root, 'dist')
 os.makedirs(dist, exist_ok=True)
-BIN = ('DeepImage.exe', 'dvmodel.dll', 'DeepImageThumbs.dll')
+BIN = ('DeepImage.exe', 'dvmodel.dll', 'DeepImageThumbs.dll', 'onnxruntime.dll', 'DirectML.dll')
 HELP = ('THUMBNAIL-HELP.md', 'ThumbnailFix.cmd', 'ThumbnailFix.ps1')
 FONTS = ('Pretendard-Regular.otf', 'Pretendard-Medium.otf', 'Pretendard-SemiBold.otf')
 for arch in ('x64', 'arm64'):
@@ -30,7 +30,7 @@ for arch in ('x64', 'arm64'):
     # portable zip (no Explorer integration)
     pz = os.path.join(dist, f'DeepImage-Viewer-{VERSION}-Portable-{arch}.zip')
     with zipfile.ZipFile(pz, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-        for f in ('DeepImage.exe', 'dvmodel.dll'):
+        for f in ('DeepImage.exe', 'dvmodel.dll', 'onnxruntime.dll', 'DirectML.dll'):
             z.write(os.path.join(b, f), f'DeepImage Viewer/{f}')
         for f in FONTS:
             z.write(os.path.join(fonts, f), f'DeepImage Viewer/fonts/{f}')

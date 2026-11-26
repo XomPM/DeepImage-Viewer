@@ -497,8 +497,15 @@ void uninstallWorker() {
     DeleteFileW((knownFolder(FOLDERID_Programs) + L"\\DeepImage Viewer.lnk").c_str());
     DeleteFileW((knownFolder(FOLDERID_Desktop) + L"\\DeepImage Viewer.lnk").c_str());
     post(75, L"파일을 지우는 중", L"Removing files");
+    {   // the downloaded background-removal model (~214 MB) is ours too
+        const std::wstring m = knownFolder(FOLDERID_LocalAppData) + L"\\DMIND\\DeepImage Viewer\\Models";
+        DeleteFileW((m + L"\\birefnet-lite.onnx").c_str());
+        DeleteFileW((m + L"\\birefnet-lite.onnx.part").c_str());
+        DeleteFileW((m + L"\\gpu-trial").c_str());
+        RemoveDirectoryW(m.c_str());
+    }
     if (!dir.empty() && dir.find(L"DeepImage Viewer") != std::wstring::npos) {
-        const wchar_t* files[] = {L"DeepImage.exe", L"dvmodel.dll", L"DeepImageThumbs.dll", L"Uninstall.exe", L"LICENSES.txt",
+        const wchar_t* files[] = {L"DeepImage.exe", L"dvmodel.dll", L"DeepImageThumbs.dll", L"onnxruntime.dll", L"DirectML.dll", L"Uninstall.exe", L"LICENSES.txt",
                                   L"fonts\\Pretendard-Regular.otf", L"fonts\\Pretendard-Medium.otf", L"fonts\\Pretendard-SemiBold.otf",
                                   L"Help\\THUMBNAIL-HELP.md", L"Help\\ThumbnailFix.cmd", L"Help\\ThumbnailFix.ps1", L"Help\\ThumbnailReport.txt"};
         for (auto f : files) {

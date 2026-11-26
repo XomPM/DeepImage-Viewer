@@ -2,6 +2,7 @@
 // Copyright (c) DMIND <dmind114@gmail.com>. MIT License.
 #include "app.h"
 #include "archive.h"
+#include "bgremove.h"
 #include "i18n.h"
 #include "settings.h"
 #include <dwmapi.h>
@@ -241,6 +242,8 @@ void App::show(int i, bool force) {
     if (i < 0 || i >= (int)files.size()) return;
     if (!force && i == index && !cur.path.empty()) return;
     if (compare && files[i].kind != (compareModels ? Kind::Model : Kind::Image)) toggleCompare(0);
+    bgCutout = false;
+    if (bgBusy && !bgDownloading) { bgBusy = false; ++bgSeq; } // a cut-out of the old picture is no use any more
     // measurements on the left pane belong to the file that is being replaced
     measures.erase(std::remove_if(measures.begin(), measures.end(), [](const Measurement& m) { return !m.right; }), measures.end());
     if (!measARight) measA.ok = false;
@@ -849,6 +852,77 @@ void App::pickMeasure(float x, float y, bool commit) {
         }
     }
     requestPaint();
+}
+
+// ======================================================================== background removal
+void App::removeBackground() {
+    if (bgBusy || mode != Mode::Image || !doc.loaded() || doc.img.frames.empty()) return;
+    if (!bg::runtimeAvailable()) { toast(T("bg.noruntime"), true); return; }
+    if (bg::modelReady()) { startBackgroundRemoval(false); return; }
+    // first use: the model is a one-off ~224 MB download
+    confirm(T("bg.dl.title"), T("bg.dl.msg"),
+            {{T("cancel"), [this] { closeModal(); requestPaint(); }},
+             {T("bg.dl.go"), [this] { closeModal(); startBackgroundRemoval(true); }, true}});
+}
+
+void App::startBackgroundRemoval(bool download) {
+    if (bgBusy || !doc.loaded() || doc.img.frames.empty()) return;
+    bgBusy = true;
+    bgDownloading = download;
+    bgProgress = 0;
+    const uint64_t s = ++bgSeq;
+    bgCancel = std::make_shared<std::atomic<bool>>(false);
+    auto cancel = bgCancel;
+    ComPtr<IWICBitmap> src = doc.img.frames[0];
+    HWND hw = hwnd;
+    std::thread([s, src, download, cancel, hw] {
+        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        std::string err;
+        std::wstring device;
+        ComPtr<IWICBitmap> out;
+        const DWORD t0 = GetTickCount();
+        DWORD tRun = t0;
+        bool ok = true;
+        if (download) {
+            DWORD last = 0;
+            ok = bg::downloadModel([&](float p) {
+                    DWORD now = GetTickCount();
+                    if (now - last > 100) { last = now; PostMessageW(hw, WM_APP_BG_PROGRESS, (WPARAM)s, (LPARAM)(p * 1000)); }
+                }, [cancel] { return cancel->load(); }, err);
+            PostMessageW(hw, WM_APP_BG_PROGRESS, (WPARAM)s, (LPARAM)-1); // download over: now the cut-out
+            tRun = GetTickCount();
+        }
+        if (ok && !cancel->load()) out = bg::removeBackground(src.Get(), err, device);
+        struct Result { std::string err; std::wstring device; DWORD ms; };
+        auto* r = new Result{err, device, GetTickCount() - tRun};
+        IWICBitmap* raw = out.Detach();
+        // pack: wparam = result, lparam = bitmap (owned by the receiver)
+        auto* msg = new std::pair<uint64_t, Result*>(s, r);
+        if (!PostMessageW(hw, WM_APP_BG, (WPARAM)msg, (LPARAM)raw)) { delete r; delete msg; if (raw) raw->Release(); }
+        CoUninitialize();
+    }).detach();
+    ensureTimer();
+    requestPaint();
+}
+
+void App::onBackgroundRemoved(uint64_t s, IWICBitmap* out, const std::string& err, const std::wstring& device, DWORD ms) {
+    ComPtr<IWICBitmap> bmp;
+    bmp.Attach(out);
+    if (s != bgSeq) return;
+    bgBusy = bgDownloading = false;
+    if (!bmp) {
+        if (err != "bg.cancelled") toast(T(err.empty() ? "bg.failed" : err.c_str()), true);
+        requestPaint();
+        return;
+    }
+    if (!doc.loaded()) { requestPaint(); return; }
+    pushEdit();
+    doc.replace(bmp);
+    doc.img.container = GUID_ContainerFormatPng; // keep the transparency when saving
+    bgCutout = true;
+    afterPixelEdit();
+    editDirty = true;
+    toast(fmtf(T("bg.done"), device.c_str(), ms / 1000.0));
 }
 
 void App::open3dPrint() {
