@@ -2,6 +2,7 @@
 // Copyright (c) DMIND <dmind114@gmail.com>. MIT License.
 #pragma once
 #include "common.h"
+#include "bgedit.h"
 #include "edit.h"
 #include "gfx.h"
 #include "image.h"
@@ -14,7 +15,7 @@
 
 namespace dv {
 
-enum : UINT { WM_APP_IMAGE = WM_APP + 1, WM_APP_MODEL, WM_APP_THUMB, WM_APP_PRELOAD, WM_APP_IMAGE_R, WM_APP_MODEL_R, WM_APP_BG, WM_APP_BG_PROGRESS };
+enum : UINT { WM_APP_IMAGE = WM_APP + 1, WM_APP_MODEL, WM_APP_THUMB, WM_APP_PRELOAD, WM_APP_IMAGE_R, WM_APP_MODEL_R, WM_APP_BG, WM_APP_BG_PROGRESS, WM_APP_BG_STAGE };
 
 struct FileEntry {
     std::wstring path, name, ext;
@@ -24,8 +25,8 @@ struct FileEntry {
 };
 
 enum class Mode { Empty, Image, Model };
-enum class EditPanel { None, Crop, Adjust };
-enum class DragKind { None, Pan, Draw, Orbit, PanModel, Crop, MoveShape };
+enum class EditPanel { None, Crop, Adjust, Bg };
+enum class DragKind { None, Pan, Draw, Orbit, PanModel, Crop, MoveShape, BgBrush, BgArea };
 
 struct Toast { std::wstring text; bool error; DWORD t0; };
 
@@ -113,15 +114,36 @@ public:
     ModelView::Hit measA, hover3d;
     bool measARight = false, hoverRight = false;
     void toggleMeasure(int on = -1);
-    // AI background removal
+    // AI background removal: the AI mask opens the editor panel (EditPanel::Bg) for refinement
     bool bgBusy = false, bgDownloading = false;
     bool bgCutout = false; // current picture had its background removed: show the checkerboard
     float bgProgress = 0;
     uint64_t bgSeq = 0;
     std::shared_ptr<std::atomic<bool>> bgCancel;
+    struct BgJob;          // worker result (bgpanel.cpp)
     void removeBackground();
-    void startBackgroundRemoval(bool download);
-    void onBackgroundRemoved(uint64_t seq, IWICBitmap* out, const std::string& err, const std::wstring& device, DWORD ms);
+    void startBgJob(int kind, bool download, WICRect roi = {});
+    void onBgJob(BgJob* job);
+    BgEdit bge;
+    int bgTool = 0;        // 0 pan, 1 keep brush, 2 erase brush, 3 pick objects, 4 area
+    float bgBrush = 48;    // brush diameter in screen DIPs
+    uint64_t bgSession = 0;
+    bool bgStageBusy = false, bgStageDirty = false;
+    BgParams bgStageReq;   // parameters of the last stage started
+    BgEdit::Rect bgStrokeRect;
+    D2D1_POINT_2F bgLast{}, bgAreaA{}, bgAreaB{};
+    void startBgStage();
+    void onBgStage(uint64_t gen, BgStage* st);
+    void bgParamsChanged();
+    void bgShow(const BgEdit::Rect& r);
+    void bgShowAll() { bgShow({0, 0, bge.W(), bge.H()}); }
+    void applyBg();
+    void closeBg(bool restore);
+    void bgUndo();
+    void bgPickObject(float x, float y);
+    void drawBgPanel();
+    void drawBgOverlay();
+    bool bgCheckerboard() const { return bgCutout || (panel == EditPanel::Bg && bge.p.bgMode == 0 && !bge.showMask); }
     void drawBgBusy();
     void pickMeasure(float x, float y, bool commit);
     void drawMeasure();

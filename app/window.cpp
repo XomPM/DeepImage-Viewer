@@ -334,13 +334,8 @@ LRESULT App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         onModelLoaded(err ? std::stoull(err->substr(0, err->find('|'))) : 0, (DvModel*)l, err ? err->substr(err->find('|') + 1) : "");
         return 0;
     }
-    case WM_APP_BG: {
-        struct Result { std::string err; std::wstring device; DWORD ms; };
-        std::unique_ptr<std::pair<uint64_t, Result*>> msg((std::pair<uint64_t, Result*>*)w);
-        std::unique_ptr<Result> r(msg->second);
-        onBackgroundRemoved(msg->first, (IWICBitmap*)l, r->err, r->device, r->ms);
-        return 0;
-    }
+    case WM_APP_BG: onBgJob((BgJob*)l); return 0;
+    case WM_APP_BG_STAGE: onBgStage((uint64_t)w, (BgStage*)l); return 0;
     case WM_APP_BG_PROGRESS:
         if ((uint64_t)w == bgSeq && bgBusy) {
             if ((int)l < 0) bgDownloading = false;
@@ -430,7 +425,7 @@ bool App::needsAnimation() {
     }
     if (view.animating() || (compare && viewR.animating())) return true;
     if (compare && (loadingR || docR.frameCount() > 1)) return true;
-    if (bgBusy) return true; // spinner
+    if (bgBusy || bgStageBusy) return true; // spinner / recompute dot
     if (mode == Mode::Model && (mv.animating() || (compare && compareModels && mvR.animating()))) return true;
     if (mode == Mode::Image && doc.frameCount() > 1 && !editMode) return true;
     if (loading) return true;
@@ -488,6 +483,26 @@ void App::onMouseDown(float x, float y, int button, WPARAM keys) {
         if (button == 0) return; // outside the picture: nothing to pick, and no panning either
     }
     if (mode == Mode::Image && doc.loaded()) {
+        if (button == 0 && panel == EditPanel::Bg && !spaceDown && !bgBusy) {
+            auto p = view.toImage(x, y);
+            if (bgTool == 1 || bgTool == 2) {
+                bge.beginStroke();
+                bgLast = p;
+                bgStrokeRect = bge.stroke(p.x, p.y, p.x, p.y, bgBrush / 2 / view.s, bgTool == 1);
+                bge.compose(bgStrokeRect.x0, bgStrokeRect.y0, bgStrokeRect.x1, bgStrokeRect.y1);
+                bgShow(bgStrokeRect);
+                drag = DragKind::BgBrush;
+                return;
+            }
+            if (bgTool == 3) { bgPickObject(x, y); return; }
+            if (bgTool == 4) {
+                p.x = clampf(p.x, 0, (float)doc.W());
+                p.y = clampf(p.y, 0, (float)doc.H());
+                bgAreaA = bgAreaB = p;
+                drag = DragKind::BgArea;
+                return;
+            }
+        }
         if (button == 0 && panel == EditPanel::Crop) {
             cropHandle = cropHitTest(x, y);
             if (cropHandle >= 0) drag = DragKind::Crop;
@@ -522,6 +537,7 @@ void App::onMouseMove(float x, float y, WPARAM keys) {
     bool inVp = inside(rcViewport, x, y);
     if (inVp != mouseInViewport) { mouseInViewport = inVp; redraw = true; }
     if (drag == DragKind::None) pokeChrome(x, y);
+    if (panel == EditPanel::Bg && (bgTool == 1 || bgTool == 2) && (inVp || drag == DragKind::BgBrush)) redraw = true; // brush cursor
     if (measuring && drag == DragKind::None && mode == Mode::Model && !U.overWidget(x, y)) pickMeasure(x, y, false);
     if (picking) {
         bool was = hoverOk;
@@ -534,6 +550,25 @@ void App::onMouseMove(float x, float y, WPARAM keys) {
     switch (drag) {
     case DragKind::Pan: eachView([&](ImageView& v, const D2D1_RECT_F&) { v.panBy(dx, dy); }); redraw = true; break;
     case DragKind::MoveShape: markup.moveTo(view.toImage(x, y)); redraw = true; break;
+    case DragKind::BgBrush: {
+        auto p = view.toImage(x, y);
+        auto r = bge.stroke(bgLast.x, bgLast.y, p.x, p.y, bgBrush / 2 / view.s, bgTool == 1);
+        bgLast = p;
+        if (!r.empty()) {
+            bge.compose(r.x0, r.y0, r.x1, r.y1);
+            bgShow(r);
+            if (bgStrokeRect.empty()) bgStrokeRect = r;
+            else bgStrokeRect = {std::min(bgStrokeRect.x0, r.x0), std::min(bgStrokeRect.y0, r.y0), std::max(bgStrokeRect.x1, r.x1), std::max(bgStrokeRect.y1, r.y1)};
+        }
+        redraw = true;
+        break;
+    }
+    case DragKind::BgArea: {
+        auto p = view.toImage(x, y);
+        bgAreaB = D2D1::Point2F(clampf(p.x, 0, (float)doc.W()), clampf(p.y, 0, (float)doc.H()));
+        redraw = true;
+        break;
+    }
     case DragKind::Draw: markup.move(view.toImage(x, y), 1.f / view.s, (keys & MK_SHIFT) != 0); redraw = true; break;
     case DragKind::Orbit: allModels([&](ModelView& m) { m.orbit(dx, dy); }); redraw = true; break;
     case DragKind::PanModel: allModels([&](ModelView& m) { m.pan(dx, dy, rh(rcViewport)); }); redraw = true; break;
@@ -579,6 +614,15 @@ void App::onMouseUp(float x, float y, int button) {
     if (button == 0 && U.mouseUp(x, y)) { requestPaint(); ensureTimer(); return; }
     if (drag == DragKind::Draw) markup.end();
     if (drag == DragKind::MoveShape) markup.endMove();
+    if (drag == DragKind::BgBrush) bge.endStroke(bgStrokeRect);
+    if (drag == DragKind::BgArea) {
+        int x0 = (int)std::floor(std::min(bgAreaA.x, bgAreaB.x)), y0 = (int)std::floor(std::min(bgAreaA.y, bgAreaB.y));
+        int x1 = (int)std::ceil(std::max(bgAreaA.x, bgAreaB.x)), y1 = (int)std::ceil(std::max(bgAreaA.y, bgAreaB.y));
+        x0 = std::max(0, x0); y0 = std::max(0, y0); x1 = std::min((int)doc.W(), x1); y1 = std::min((int)doc.H(), y1);
+        drag = DragKind::None;
+        if ((x1 - x0) * view.s < 12 || (y1 - y0) * view.s < 12 || x1 - x0 < 8 || y1 - y0 < 8) toast(T("bg.area.small"), true);
+        else startBgJob(1, false, WICRect{x0, y0, x1 - x0, y1 - y0});
+    }
     // a click (not a drag) while measuring places a point
     if (measuring && drag == DragKind::Orbit && std::hypot(x - downX, y - downY) < 4) pickMeasure(x, y, true);
     drag = DragKind::None;
@@ -676,9 +720,9 @@ bool App::onKey(UINT vk, bool down) {
     if (ctrl) {
         switch (vk) {
         case 'O': guardUnsaved([this] { openDialog(); }); return done();
-        case 'S': if (img) saveAs(); else if (mdl) saveScreenshot(); return done();
-        case 'C': if (img) copyImage(); return done();
-        case 'Z': if (annot) { shift ? markup.redo() : markup.undo(); } else if (img && editMode) undoEdit(); return done();
+        case 'S': if (panel == EditPanel::Bg) return done(); if (img) saveAs(); else if (mdl) saveScreenshot(); return done();
+        case 'C': if (img && panel != EditPanel::Bg) copyImage(); return done();
+        case 'Z': if (panel == EditPanel::Bg) bgUndo(); else if (annot) { shift ? markup.redo() : markup.undo(); } else if (img && editMode) undoEdit(); return done();
         case 'Y': if (annot) markup.redo(); return done();
         case 'R': if (img && !annot && panel == EditPanel::None) rotateViews(shift ? -90 : 90); return done();
         case '0': case VK_NUMPAD0: if (img) eachView([](ImageView& v, const D2D1_RECT_F&) { v.fit(true); }); else if (mdl) mv.view("iso"); return done();
@@ -690,6 +734,17 @@ bool App::onKey(UINT vk, bool down) {
     if (panel == EditPanel::Crop) {
         if (vk == VK_RETURN) { applyCrop(); return done(); }
         if (vk == VK_ESCAPE) { panel = EditPanel::None; return done(); }
+    }
+    if (panel == EditPanel::Bg) {
+        if (vk == VK_RETURN) { applyBg(); return done(); }
+        if (vk == VK_ESCAPE) { if (drag == DragKind::BgArea) drag = DragKind::None; else closeBg(true); return done(); }
+        if (vk >= '1' && vk <= '5') { bgTool = (int)(vk - '1'); return done(); }
+        if (vk == 'M') { bge.showMask = !bge.showMask; bge.composeAll(); bgShowAll(); return done(); }
+        if (vk == VK_OEM_4) { bgBrush = std::max(4.f, std::round(bgBrush / 1.2f)); return done(); }
+        if (vk == VK_OEM_6) { bgBrush = std::min(300.f, std::round(bgBrush * 1.2f + 1)); return done(); }
+        if (vk == VK_SPACE) { spaceDown = true; return true; }
+        if (vk != VK_F11 && vk != VK_TAB && vk != VK_OEM_PLUS && vk != VK_ADD && vk != VK_OEM_MINUS && vk != VK_SUBTRACT && vk != '0' && vk != VK_NUMPAD0)
+            return true; // the editor owns the other keys
     }
     if (panel == EditPanel::Adjust) {
         if (vk == VK_RETURN) { applyAdjust(); return done(); }

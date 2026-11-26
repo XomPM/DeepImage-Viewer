@@ -613,6 +613,18 @@ void ImageDoc::replace(ComPtr<IWICBitmap> bmp) {
     upload(G.dc.Get());
 }
 
+void ImageDoc::updatePixels(const uint8_t* px, int x0, int y0, int x1, int y1) {
+    if (gpu.empty() || !px) return;
+    const UINT stride = img.width * 4;
+    for (auto& t : gpu[0]) {
+        int tx0 = std::max(x0, (int)t.rect.left), ty0 = std::max(y0, (int)t.rect.top);
+        int tx1 = std::min(x1, (int)t.rect.right), ty1 = std::min(y1, (int)t.rect.bottom);
+        if (tx0 >= tx1 || ty0 >= ty1) continue;
+        D2D1_RECT_U dst{(UINT)(tx0 - (int)t.rect.left), (UINT)(ty0 - (int)t.rect.top), (UINT)(tx1 - (int)t.rect.left), (UINT)(ty1 - (int)t.rect.top)};
+        t.bmp->CopyFromMemory(&dst, px + (size_t)ty0 * stride + (size_t)tx0 * 4, stride);
+    }
+}
+
 bool ImageDoc::tick() {
     if (img.frames.size() < 2) return false;
     DWORD now = GetTickCount();

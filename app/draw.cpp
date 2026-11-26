@@ -37,7 +37,7 @@ void App::layout() {
     float sH = (S.filmstrip && mode != Mode::Empty && !fullscreen && !files.empty()) ? 92.f : 0.f;
     float side = 0;
     if (mode != Mode::Empty && !fullscreen) {
-        if (panel == EditPanel::Adjust) side = 300;
+        if (panel == EditPanel::Adjust || panel == EditPanel::Bg) side = 300;
         else if (S.infoPanel) side = 296;
     }
     // immersive "fill" mode: the picture takes the whole window; toolbar and filmstrip float over it on demand
@@ -107,6 +107,7 @@ void App::paint() {
     }
     if (rw(rcSide) > 0) {
         if (panel == EditPanel::Adjust) drawAdjustPanel();
+        else if (panel == EditPanel::Bg) drawBgPanel();
         else drawInfoPanel();
     }
     drawFilmstrip();
@@ -141,7 +142,7 @@ void App::drawBackground() {
         return;
     }
     G.fill(rcViewport, P.canvas);
-    if (mode == Mode::Image && (S.imageBg == 1 || bgCutout)) {
+    if (mode == Mode::Image && (S.imageBg == 1 || bgCheckerboard())) {
         static ComPtr<ID2D1BitmapBrush> chk;
         static bool chkDark = false;
         if (!chk || chkDark != P.dark) {
@@ -365,6 +366,7 @@ void App::drawImageStage() {
     if (panel != EditPanel::Crop) markup.draw(dc, true, annot && markup.tool == Tool::Hand ? px : 0);
     dc->SetTransform(D2D1::Matrix3x2F::Identity());
     if (panel == EditPanel::Crop) drawCropOverlay();
+    drawBgOverlay();
     if (annot && markup.tool == Tool::Eraser && mouseInViewport && !U.overWidget(U.mx, U.my)) {
         float r = markup.ts().width / 2;
         G.circle(U.mx, U.my, r, rgba(0xFFFFFF, .95f), false, 1.5f);
@@ -675,19 +677,19 @@ void App::drawToolbars() {
                 U.textButton(hid("crop.apply"), RW(r.left + 24 + sw + bw1, r.top + 8, bw2, 32), T("apply"), [this] { applyCrop(); }, true);
             }
             std::vector<TbItem> it = {
-                {TbItem::Btn, "crop", "edit.crop", [this] { beginCrop(); }, panel == EditPanel::Crop, true, TL("edit.crop")},
-                {TbItem::Btn, "scaling", "edit.resize", [this] { openResize(); }, false, true, TL("edit.resize")},
-                {TbItem::Btn, "wand-sparkles", "edit.bg", [this] { removeBackground(); }, bgBusy, panel == EditPanel::None && !bgBusy, TL("edit.bg")},
+                {TbItem::Btn, "crop", "edit.crop", [this] { beginCrop(); }, panel == EditPanel::Crop, panel != EditPanel::Bg, TL("edit.crop")},
+                {TbItem::Btn, "scaling", "edit.resize", [this] { openResize(); }, false, panel != EditPanel::Bg, TL("edit.resize")},
+                {TbItem::Btn, "wand-sparkles", "edit.bg", [this] { removeBackground(); }, bgBusy || panel == EditPanel::Bg, panel == EditPanel::None && !bgBusy, TL("edit.bg")},
                 {TbItem::Btn, "sliders-horizontal", "edit.adjust", [this] { panel == EditPanel::Adjust ? (void)(panel = EditPanel::None, adj = Adjust{}, fxActive = false) : beginAdjust(); requestPaint(); },
-                 panel == EditPanel::Adjust, true, TL("edit.adjust")},
+                 panel == EditPanel::Adjust, panel != EditPanel::Bg, TL("edit.adjust")},
                 {TbItem::Sep},
                 {TbItem::Btn, "rotate-ccw", "rotate.left", [this] { view.rotate(-90); bakeOrientationIntoImage(); }, false, panel == EditPanel::None},
                 {TbItem::Btn, "rotate-cw", "rotate.right", [this] { view.rotate(90); bakeOrientationIntoImage(); }, false, panel == EditPanel::None},
                 {TbItem::Btn, "flip-h", "flip.h", [this] { view.flip(true); bakeOrientationIntoImage(); }, false, panel == EditPanel::None},
                 {TbItem::Btn, "flip-v", "flip.v", [this] { view.flip(false); bakeOrientationIntoImage(); }, false, panel == EditPanel::None},
                 {TbItem::Sep},
-                {TbItem::Btn, "undo-2", "edit.undo", [this] { undoEdit(); }, false, !editUndo.empty()},
-                {TbItem::Btn, "download", "save", [this] { saveAs(); }},
+                {TbItem::Btn, "undo-2", "edit.undo", [this] { undoEdit(); }, false, !editUndo.empty() && panel != EditPanel::Bg},
+                {TbItem::Btn, "download", "save", [this] { saveAs(); }, false, panel != EditPanel::Bg},
                 {TbItem::Primary, "check", nullptr, [this] { toggleEdit(0); }, false, true, T("done")},
             };
             // crop label is long in Korean: keep labels only on wide windows

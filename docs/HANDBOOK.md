@@ -1,7 +1,7 @@
 # DeepImage Viewer — 개발 핸드북 (Claude 작업용)
 
 > 새 채팅에서 이 프로젝트를 이어받을 때 **가장 먼저 읽는 문서**. 사용자와 확정한 기능·디자인·빌드·배포 절차를 정리한다.
-> 마지막 갱신: 2026-11-26 · 현재 버전 **1.0.9**
+> 마지막 갱신: 2026-11-26 · 현재 버전 **1.0.10**
 
 ---
 
@@ -46,6 +46,8 @@ C++20, Windows 전용 API. Linux에서 **llvm-mingw**로 x64·ARM64 교차 빌�
 | `app/actions.cpp` | 파일 열기·이동, 프리로드, 비교 모드, 맞춤 모드, 편집, 저장, `open3dPrint` |
 | `app/imageview.*` | 보기 변환(맞춤 5종) + Markup(펜·형광펜·도형·모자이크·마스크·선택이동) |
 | `app/bgremove.*` | AI 배경 제거: onnxruntime.dll/DirectML.dll 동적 로드, BiRefNet lite 1024² 추론, 모델 다운로드(WinHTTP + SHA-256) |
+| `app/bgedit.*` | 배경 제거 마스크 파이프라인(Windows API 없음 — 리눅스 g++로 단독 테스트 가능) |
+| `app/bgpanel.cpp` | 배경 제거 작업 스레드, 다듬기 패널, 브러시·물체·영역 도구 |
 | `app/thumbs.cpp` | 썸네일 서비스(2스레드) + **디스크 캐시** |
 | `app/gfx.cpp` | D2D/DWrite/SVG 아이콘 (아이콘 root svg width/height = 요청 크기 — 아니면 24px로 그려지는 버그) |
 | `app/ui.cpp` | 위젯(toolButton, segmented, slider, swatch, toggle) — 휠은 맨 위 "휠 처리 영역"을 찾아 전달 |
@@ -113,7 +115,10 @@ C++20, Windows 전용 API. Linux에서 **llvm-mingw**로 x64·ARM64 교차 빌�
 - 설치 폴더 `Help\`와 포터블 zip에 포함, 릴리스 자산 `DeepImage-Thumbnail-Help.zip` 별도. 설정 창 하단 **썸네일 문제 해결** 버튼 → 설치 폴더 Help 열기(없으면 GitHub 문서). 제거기는 Help 파일·폴더도 지운다.
 
 ### 배경 제거 (1.0.9)
-- 편집 툴바 "배경 제거"(wand-sparkles) 또는 이미지 모드 B 키(3D 모드에서 B는 여전히 바운딩 박스). 결과는 `pushEdit` → 되돌리기 가능, 컨테이너 PNG, `bgCutout`이면 체크무늬 배경.
+- 편집 툴바 "배경 제거"(wand-sparkles) 또는 이미지 모드 B 키(3D 모드에서 B는 여전히 바운딩 박스). **1.0.10부터** AI 마스크가 바로 확정되지 않고 `EditPanel::Bg` 다듬기 패널이 열림 → 적용 시 `pushEdit` + `doc.replace`(투명이면 컨테이너 PNG, `bgCutout` 체크무늬). 편집 툴바 "완료" = 적용, Esc = 취소(`doc.upload`로 원본 복원).
+- 다듬기 구조(`BgEdit`): 원본 PBGRA 사본 + AI 마스크(shared_ptr, 불변) → **stage**(작업 스레드, `bgComputeStage`: 강도 감마 2^(s/50) → 4연결 물체 라벨 → 선택 물체만(+림 팽창) → 가장자리 min/max(vHGW) → 부드럽게(박스 2회) → 색 번짐 제거 F=(I−(1−a)B)/a, B=배경 가중 저해상도 블러 → 흐림 배경) → **compose**(UI 스레드, 브러시 keep/erase 반영, 전체 또는 브러시 사각형만) → `ImageDoc::updatePixels`로 GPU 타일만 갱신(원본 프레임은 그대로). stage는 1개만 돌고 변경이 오면 `bgStageDirty`로 끝난 뒤 다시.
+- 도구 1~5: 이동 / 남기기·지우기 브러시(화면 px 지름 `bgBrush`, [ ]) / 물체 클릭(라벨 토글) / 영역(사각형 안만 AI 다시 → 밖은 배경). M = 제거 영역 빨간 표시, Ctrl+Z = 브러시 패치·AI 마스크·물체 목록 되돌리기(30단계). 패널 중에는 다른 단축키·저장·복사 막음.
+- 성능(컨테이너 2코어, 12MP): stage 기본 ~0.2초, 전부 켜면 ~1초, compose ~80ms.
 - 모델: BiRefNet general lite(bb_swin_v1_tiny, MIT, 224,005,088 B, SHA-256 `5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333`). 처음 사용 시 확인 후 `%LOCALAPPDATA%\DMIND\DeepImage Viewer\Models\birefnet-lite.onnx`로 내려받음. URL 순서: ① 우리 `releases/download/models-v1/birefnet-lite.onnx`(아직 없음 — 올리면 rembg 의존 제거) ② `danielgatis/rembg` v0.0.0 asset.
 - 런타임: ONNX Runtime(NuGet Microsoft.ML.OnnxRuntime.DirectML) + DirectML.dll을 exe 옆에 배포(설치·포터블·MSIX 모두). 헤더는 `third_party/onnxruntime/include`. `dml_provider_factory.h`는 SAL 때문에 mingw에서 안 됨 → `OrtDmlApi` 최소 구조체 직접 선언.
 - GPU 우선(D3D12 FL 11 확인) → 실패/크래시 시 CPU. `gpu-trial` 표식 파일로 지난번 GPU 크래시를 감지해 건너뜀, `DEEPIMAGE_BG_CPU=1`이면 CPU 강제. CPU 세션은 메모리 아레나·패턴 끔.
@@ -230,3 +235,4 @@ python3 package.py fonts        # → dist/
 - **1.0.7** (2026-11-21): 3D 단면(X, 셰이더 clip + 안쪽 면을 단면색으로 칠해 캡 표현, `ModelView::setSection`), 거리 측정(D, CPU 레이캐스트 `ModelView::pick` + 꼭짓점 10px/모서리 7px 스냅, 측정값은 파일 좌표계 기준, 단위는 units==1 또는 stl/3mf/step/iges/amf면 mm, 측정마다 8색 팔레트 `kMeasColors`·번호, 카드에 전체 목록과 줄별 복사·삭제), 3D 비교(V, `mvR` + WM_APP_MODEL_R, `compareModels`일 때 nextImage가 3D 파일을 고름, 카메라·표시 설정은 `allModels`로 양쪽 동기화).
 - **1.0.8** (2026-11-23): 첫 IDAT 청크가 1MB를 넘는 PNG(스캐너가 그림 전체를 한 청크로 저장)는 WIC 대신 stb_image로 해독(`pngHasGiantIdat`). WIC가 띠마다 그 청크를 다시 푸는 것으로 보여 A4 300dpi 스캔이 "불러오는 중"에 오래 멈췄음. Wine에서는 재현 안 됨(실제 Windows에서 확인 필요).
 - **1.0.9** (2026-11-26): AI 배경 제거(B) — BiRefNet lite + ONNX Runtime(DirectML → CPU 대체), 첫 사용 시 모델 다운로드. 설치 파일 약 15MB 증가. 실제 Windows의 GPU 경로·다운로드는 사용자 확인 필요.
+- **1.0.10** (2026-11-26): 배경 제거 다듬기 패널 — 남기기/지우기 브러시, 물체 선택, 영역 다시 인식, 강도·가장자리·부드럽게·색 번짐 제거, 배경 투명/단색/흐림, 제거 영역 표시, 되돌리기. Wine에서 전 기능 확인, 실제 PC 확인 필요.

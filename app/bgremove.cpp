@@ -286,21 +286,29 @@ bool downloadModel(const std::function<void(float)>& progress, const std::functi
     return false;
 }
 
-ComPtr<IWICBitmap> removeBackground(IWICBitmap* src, std::string& err, std::wstring& device) {
+bool predictMask(IWICBitmap* full, const WICRect* roi, std::vector<uint8_t>& mask, std::string& err, std::wstring& device) {
     std::lock_guard<std::mutex> lk(g.m);
-    if (!src) { err = "bg.failed"; return nullptr; }
-    if (!modelReady()) { err = "bg.nomodel"; return nullptr; }
-    if (!ensureSession(err)) return nullptr;
+    if (!modelReady()) { err = "bg.nomodel"; return false; }
+    if (!ensureSession(err)) return false;
     ComPtr<IWICImagingFactory> wic;
-    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic)))) { err = "bg.failed"; return nullptr; }
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic)))) { err = "bg.failed"; return false; }
+    if (!full) { err = "bg.failed"; return false; }
+    ComPtr<IWICBitmapSource> src = full;
     UINT W = 0, H = 0;
-    src->GetSize(&W, &H);
+    full->GetSize(&W, &H);
+    if (roi) {
+        ComPtr<IWICBitmapClipper> clip;
+        if (FAILED(wic->CreateBitmapClipper(&clip)) || FAILED(clip->Initialize(full, roi))) { err = "bg.failed"; return false; }
+        src = clip;
+        W = (UINT)roi->Width;
+        H = (UINT)roi->Height;
+    }
     const UINT S = (UINT)g.side;
     // 1. model input: S x S, RGB, ImageNet normalisation, planar
     ComPtr<IWICBitmapScaler> sc;
     std::vector<uint8_t> small((size_t)S * S * 4);
-    if (FAILED(wic->CreateBitmapScaler(&sc)) || FAILED(sc->Initialize(src, S, S, kHQCubic)) ||
-        FAILED(sc->CopyPixels(nullptr, S * 4, (UINT)small.size(), small.data()))) { err = "bg.failed"; return nullptr; }
+    if (FAILED(wic->CreateBitmapScaler(&sc)) || FAILED(sc->Initialize(src.Get(), S, S, kHQCubic)) ||
+        FAILED(sc->CopyPixels(nullptr, S * 4, (UINT)small.size(), small.data()))) { err = "bg.failed"; return false; }
     std::vector<float> input((size_t)3 * S * S);
     const float mean[3] = {0.485f, 0.456f, 0.406f}, stdv[3] = {0.229f, 0.224f, 0.225f};
     const size_t plane = (size_t)S * S;
@@ -314,7 +322,7 @@ ComPtr<IWICBitmap> removeBackground(IWICBitmap* src, std::string& err, std::wstr
     std::vector<float> logits;
     std::string e;
     if (!infer(input, logits, e)) {
-        if (!g.gpu || !createSession(false, e) || !infer(input, logits, e)) { err = "bg.failed"; return nullptr; }
+        if (!g.gpu || !createSession(false, e) || !infer(input, logits, e)) { err = "bg.failed"; return false; }
     }
     device = g.gpu ? L"GPU" : L"CPU";
     // 3. mask: sigmoid, scaled back to the picture with a smooth filter
@@ -322,24 +330,13 @@ ComPtr<IWICBitmap> removeBackground(IWICBitmap* src, std::string& err, std::wstr
     for (size_t i = 0; i < plane; ++i) m8[i] = (uint8_t)std::lround(255.f / (1.f + std::exp(-logits[i])));
     ComPtr<IWICBitmap> mbmp;
     ComPtr<IWICBitmapScaler> ms;
-    std::vector<uint8_t> mask((size_t)W * H);
+    mask.assign((size_t)W * H, 0);
     if (FAILED(wic->CreateBitmapFromMemory(S, S, GUID_WICPixelFormat8bppGray, S, (UINT)m8.size(), m8.data(), &mbmp)) || FAILED(wic->CreateBitmapScaler(&ms)) ||
         FAILED(ms->Initialize(mbmp.Get(), W, H, kHQCubic)) || FAILED(ms->CopyPixels(nullptr, W, (UINT)mask.size(), mask.data()))) {
         err = "bg.failed";
-        return nullptr;
+        return false;
     }
-    // 4. cut-out: premultiplied pixels times the mask
-    std::vector<uint8_t> px((size_t)W * H * 4);
-    if (FAILED(src->CopyPixels(nullptr, W * 4, (UINT)px.size(), px.data()))) { err = "bg.failed"; return nullptr; }
-    for (size_t i = 0; i < (size_t)W * H; ++i) {
-        const uint32_t k = mask[i];
-        if (k == 255) continue;
-        uint8_t* p = &px[i * 4];
-        for (int c = 0; c < 4; ++c) p[c] = (uint8_t)((p[c] * k + 127) / 255);
-    }
-    ComPtr<IWICBitmap> out;
-    if (FAILED(wic->CreateBitmapFromMemory(W, H, GUID_WICPixelFormat32bppPBGRA, W * 4, (UINT)px.size(), px.data(), &out))) { err = "bg.failed"; return nullptr; }
-    return out;
+    return true;
 }
 
 } // namespace dv::bg

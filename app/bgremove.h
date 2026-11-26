@@ -23,8 +23,8 @@ constexpr uint64_t kModelBytes = 224005088;
 // downloads the model; progress 0..1; false + err key on failure. Runs on the calling (worker) thread.
 bool downloadModel(const std::function<void(float)>& progress, const std::function<bool()>& cancelled, std::string& err);
 
-// cut-out of `src` (32bpp PBGRA): same size, background made transparent. Worker thread.
-// `device` is set to "GPU" or "CPU" for the toast.
-ComPtr<IWICBitmap> removeBackground(IWICBitmap* src, std::string& err, std::wstring& device);
+// foreground mask (0..255, one byte per pixel) of `src` (32bpp PBGRA), or of the part inside `roi`
+// (mask is then roi->Width x roi->Height). Worker thread. `device` is set to "GPU" or "CPU".
+bool predictMask(IWICBitmap* src, const WICRect* roi, std::vector<uint8_t>& mask, std::string& err, std::wstring& device);
 
 } // namespace dv::bg

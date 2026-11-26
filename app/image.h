@@ -36,6 +36,8 @@ public:
     void clear();
     void upload(ID2D1DeviceContext* dc);               // (re)create GPU tiles for all frames
     void replace(ComPtr<IWICBitmap> bmp);              // after an edit: single upright frame
+    // live preview: copies a rectangle of W()-wide PBGRA pixels into the GPU tiles (the frame itself is unchanged)
+    void updatePixels(const uint8_t* px, int x0, int y0, int x1, int y1);
     void draw(ID2D1DeviceContext* dc, float scale, ID2D1Effect* chainHead = nullptr, ID2D1Effect* chainTail = nullptr,
               float opacity = 1.f) const;
     bool tick();                                       // advance animation; true if frame changed
