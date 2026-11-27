@@ -17,6 +17,8 @@ struct Settings {
     int fitMode = 0;      // 0 whole, 1 fill, 2 width, 3 height, 4 actual size
     int slideDelay = 3;   // slideshow seconds per image
     bool pinChrome = false; // toolbar, filmstrip and side arrows never auto-hide
+    bool updateCheck = true; // look for a new version once a day (GitHub installs)
+    uint32_t updateLast = 0; // day (since 1970) of the last check
     WINDOWPLACEMENT placement{};
     bool hasPlacement = false;
     std::wstring lastDir;

@@ -3,6 +3,7 @@
 #pragma once
 #include "common.h"
 #include "bgedit.h"
+#include "update.h"
 #include "edit.h"
 #include "gfx.h"
 #include "image.h"
@@ -15,7 +16,7 @@
 
 namespace dv {
 
-enum : UINT { WM_APP_IMAGE = WM_APP + 1, WM_APP_MODEL, WM_APP_THUMB, WM_APP_PRELOAD, WM_APP_IMAGE_R, WM_APP_MODEL_R, WM_APP_BG, WM_APP_BG_PROGRESS, WM_APP_BG_STAGE };
+enum : UINT { WM_APP_IMAGE = WM_APP + 1, WM_APP_MODEL, WM_APP_THUMB, WM_APP_PRELOAD, WM_APP_IMAGE_R, WM_APP_MODEL_R, WM_APP_BG, WM_APP_BG_PROGRESS, WM_APP_BG_STAGE, WM_APP_UPD };
 
 struct FileEntry {
     std::wstring path, name, ext;
@@ -114,6 +115,19 @@ public:
     ModelView::Hit measA, hover3d;
     bool measARight = false, hoverRight = false;
     void toggleMeasure(int on = -1);
+    // updates (GitHub installs; Store packages update through the Store)
+    struct UpdResult { bool ok = false; upd::Info info; std::wstring path; std::string err; };
+    int updState = 0;      // 0 idle, 1 checking, 2 up to date, 3 available, 4 downloading, 5 check failed
+    upd::Info updInfo;
+    bool updBanner = false, updManual = false;
+    float updProgress = 0;
+    std::shared_ptr<std::atomic<bool>> updCancel;
+    void scheduleUpdateCheck();
+    void checkForUpdate(bool manual);
+    void onUpdateMsg(WPARAM kind, LPARAM l);
+    void startUpdate();
+    void drawUpdateBar();
+
     // AI background removal: the AI mask opens the editor panel (EditPanel::Bg) for refinement
     bool bgBusy = false, bgDownloading = false;
     bool bgCutout = false; // current picture had its background removed: show the checkerboard

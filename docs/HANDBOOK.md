@@ -1,7 +1,7 @@
 # DeepImage Viewer — 개발 핸드북 (Claude 작업용)
 
 > 새 채팅에서 이 프로젝트를 이어받을 때 **가장 먼저 읽는 문서**. 사용자와 확정한 기능·디자인·빌드·배포 절차를 정리한다.
-> 마지막 갱신: 2026-11-26 · 현재 버전 **1.0.10**
+> 마지막 갱신: 2026-11-26 · 현재 버전 **1.0.11**
 
 ---
 
@@ -48,6 +48,7 @@ C++20, Windows 전용 API. Linux에서 **llvm-mingw**로 x64·ARM64 교차 빌�
 | `app/bgremove.*` | AI 배경 제거: onnxruntime.dll/DirectML.dll 동적 로드, BiRefNet lite 1024² 추론, 모델 다운로드(WinHTTP + SHA-256) |
 | `app/bgedit.*` | 배경 제거 마스크 파이프라인(Windows API 없음 — 리눅스 g++로 단독 테스트 가능) |
 | `app/bgpanel.cpp` | 배경 제거 작업 스레드, 다듬기 패널, 브러시·물체·영역 도구 |
+| `app/update.*` | 업데이트 확인(GitHub API releases/latest), Setup 다운로드·SHA-256 검사, Setup `/update` 실행, 알림 배너 |
 | `app/thumbs.cpp` | 썸네일 서비스(2스레드) + **디스크 캐시** |
 | `app/gfx.cpp` | D2D/DWrite/SVG 아이콘 (아이콘 root svg width/height = 요청 크기 — 아니면 24px로 그려지는 버그) |
 | `app/ui.cpp` | 위젯(toolButton, segmented, slider, swatch, toggle) — 휠은 맨 위 "휠 처리 영역"을 찾아 전달 |
@@ -124,6 +125,14 @@ C++20, Windows 전용 API. Linux에서 **llvm-mingw**로 x64·ARM64 교차 빌�
 - GPU 우선(D3D12 FL 11 확인) → 실패/크래시 시 CPU. `gpu-trial` 표식 파일로 지난번 GPU 크래시를 감지해 건너뜀, `DEEPIMAGE_BG_CPU=1`이면 CPU 강제. CPU 세션은 메모리 아레나·패턴 끔.
 - CPU 1024² 추론 최대 메모리 약 5.3GB(최적화 수준과 무관), Wine 2코어 19.9초. 설치 제거 시 Models 폴더 삭제.
 - 컨테이너에서 NuGet/HF/PyPI는 막힘 → 패키지는 사용자가 `D:\DeepImage Viewer\deps`에 넣고 스테이징.
+
+### 업데이트 (1.0.11)
+- GitHub 설치판만(`packagedAumid()`가 비어 있을 때). 시작 6초 뒤 타이머 5 → 하루 한 번(`UpdateLastCheck` = 1970년부터의 일수, `UpdateCheck` 끄기 가능) `api.github.com/repos/XomPM/DeepImage-Viewer/releases/latest` 조회(자체 미니 JSON 파서).
+- 태그가 `kVersion`보다 크면(숫자 비교) 오른쪽 아래(필름스트립 위) 배너: 변경 내용(릴리스 페이지) · 지금 업데이트 · X. 정보 창 버전 줄에 "업데이트 확인" 버튼과 상태, 아래에 자동 확인 스위치.
+- 지금 업데이트: `guardUnsaved` → 네이티브 아키텍처(`IsWow64Process2`)의 `*-Setup-<arch>.exe` 자산(없으면 x64)을 `%TEMP%\DeepImage-update`에 받음 → **GitHub 자산 `digest`(sha256)** 와 크기 비교 → `Setup /update /relaunch "<보던 파일>"`(압축 항목이면 압축 파일) 실행 후 앱 WM_CLOSE. 다음 시작 때 임시 폴더 정리.
+- Setup `/update`: 환영 화면 없이 진행 화면 → 기존 설치 선택 유지(바탕화면 .lnk 존재, `Applications\DeepImage.exe\SupportedTypes` 키, `ThumbnailsRegistered`) → 끝나면 설치된 exe를 relaunch 인자로 실행하고 닫힘. 실패 시 오류 화면.
+- 포터블(exe 옆에 Uninstall.exe 없음)은 "다운로드 페이지"만. **버전마다 GitHub 릴리스(release.cmd)가 있어야 동작**. 1.0.10 이하 Setup은 `/update`를 모르므로 일반 설치 화면이 뜸(1.0.11 이상끼리만 매끄러움).
+- Wine 테스트: `http_proxy=$HTTPS_PROXY`를 주면 Wine WinHTTP가 컨테이너 프록시로 GitHub에 접속됨(Http::open은 AUTOMATIC → DEFAULT 프록시 순서로 재시도). `--about` 인자로 정보 창 바로 열기.
 
 ### 정보 창
 - 버전 / 제작 **DMIND**(링크 → `https://www.godgok.com/3dmind/`) / 문의 메일 / **GitHub**(링크 → `https://github.com/XomPM/DeepImage-Viewer`). 링크는 강조색 + hover 밑줄 + 손 커서.
@@ -236,3 +245,4 @@ python3 package.py fonts        # → dist/
 - **1.0.8** (2026-11-23): 첫 IDAT 청크가 1MB를 넘는 PNG(스캐너가 그림 전체를 한 청크로 저장)는 WIC 대신 stb_image로 해독(`pngHasGiantIdat`). WIC가 띠마다 그 청크를 다시 푸는 것으로 보여 A4 300dpi 스캔이 "불러오는 중"에 오래 멈췄음. Wine에서는 재현 안 됨(실제 Windows에서 확인 필요).
 - **1.0.9** (2026-11-26): AI 배경 제거(B) — BiRefNet lite + ONNX Runtime(DirectML → CPU 대체), 첫 사용 시 모델 다운로드. 설치 파일 약 15MB 증가. 실제 Windows의 GPU 경로·다운로드는 사용자 확인 필요.
 - **1.0.10** (2026-11-26): 배경 제거 다듬기 패널 — 남기기/지우기 브러시, 물체 선택, 영역 다시 인식, 강도·가장자리·부드럽게·색 번짐 제거, 배경 투명/단색/흐림, 제거 영역 표시, 되돌리기. Wine에서 전 기능 확인, 실제 PC 확인 필요. Store: 1.0.7 게시 확인 후 2026-11-26 Submission 7로 1.0.10 제출(인증 중, 1.0.8·1.0.9는 Store 건너뜀). 패키지 페이지 URL `.../products/9NGVFW0BKS97/submissions/<id>/packages`, 목록은 `.../submissions/<id>/listings?languageid=61&languagecode=ko-kr`(en-us는 4), 새 기능 칸은 `textarea[aria-label=releaseNotes]`(최대 1500자).
+- **1.0.11** (2026-11-27): 업데이트 알림 + 버튼 한 번으로 설치(GitHub digest 검사, Setup `/update` 후 보던 파일 다시 열기), 정보 창 업데이트 확인·자동 확인 스위치. Wine에서 확인 → 다운로드·검사·Setup 실행·재실행까지 동작.

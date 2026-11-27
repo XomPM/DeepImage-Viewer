@@ -382,8 +382,25 @@ struct SetupState {
     std::atomic<int> progress{0};
     std::wstring step, error;
     bool quiet = false;
+    bool update = false;      // started by the app's updater: progress only, then reopen the app
+    std::wstring relaunch;    // file the app had open
     std::wstring dir;
 } St;
+
+bool keyExists(const std::wstring& key) {
+    HKEY k;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, key.c_str(), 0, KEY_READ, &k) != ERROR_SUCCESS) return false;
+    RegCloseKey(k);
+    return true;
+}
+
+// an update keeps the choices made at the first install
+void detectInstalledOptions() {
+    St.opt.desktop = GetFileAttributesW((knownFolder(FOLDERID_Desktop) + L"\\DeepImage Viewer.lnk").c_str()) != INVALID_FILE_ATTRIBUTES;
+    St.opt.assoc = keyExists(L"Software\\Classes\\Applications\\DeepImage.exe\\SupportedTypes");
+    DWORD v = 0, sz = sizeof v;
+    St.opt.thumbs = RegGetValueW(HKEY_CURRENT_USER, L"Software\\DMIND\\DeepImageViewer", L"ThumbnailsRegistered", RRF_RT_REG_DWORD, nullptr, &v, &sz) == ERROR_SUCCESS && v;
+}
 
 HWND g_hwnd;
 Payload g_payload;
@@ -700,6 +717,14 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_DONE:
         St.screen = l ? 3 : 2;
+        if (St.update && !l) {
+            // reopen the app (and the picture it had open)
+            const std::wstring exe = St.dir + L"\\DeepImage.exe";
+            const std::wstring args = St.relaunch.empty() ? L"" : L"\"" + St.relaunch + L"\"";
+            ShellExecuteW(nullptr, L"open", exe.c_str(), args.empty() ? nullptr : args.c_str(), St.dir.c_str(), SW_SHOWNORMAL);
+            DestroyWindow(h);
+            return 0;
+        }
         if (St.quiet) PostMessageW(h, WM_CLOSE, 0, 0);
         InvalidateRect(h, nullptr, FALSE);
         return 0;
@@ -729,7 +754,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
         if (!wcscmp(argv[i], L"/uninstall")) un = true;
         else if (!wcscmp(argv[i], L"/uninstall2")) { un2 = true; if (i + 1 < argc) dirArg = argv[++i]; }
         else if (!wcscmp(argv[i], L"/quiet")) St.quiet = true;
+        else if (!wcscmp(argv[i], L"/update")) St.update = true;
+        else if (!wcscmp(argv[i], L"/relaunch") && i + 1 < argc) St.relaunch = argv[++i];
     }
+    if (St.update) un = false;
     LocalFree(argv);
     if (un && !un2) {
         // run from a temp copy so the installed Uninstall.exe can be deleted
@@ -773,7 +801,12 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
         return 1;
     }
     loadMark();
-    if (St.quiet) {
+    if (St.update) {
+        detectInstalledOptions();
+        St.screen = 1;
+        ShowWindow(g_hwnd, SW_SHOW);
+        std::thread(installWorker).detach();
+    } else if (St.quiet) {
         St.screen = 1;
         std::thread(St.uninstall ? uninstallWorker : installWorker).detach();
     } else {

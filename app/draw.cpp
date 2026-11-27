@@ -114,6 +114,7 @@ void App::paint() {
     drawTitlebar();
     if (mode != Mode::Empty && !modal.kind) { drawSlidePill(); drawPicker(); }
     if (bgBusy) drawBgBusy();
+    drawUpdateBar();
     drawToasts();
     if (modal.kind) {
         U.layer = 10;
@@ -1146,7 +1147,7 @@ void App::drawModal() {
     auto& bg = U.add(hid("modal.bg"), R(0, 0, G.W(), G.H()));
     if (modal.kind == 1 || modal.kind == 2) bg.click = [this] { closeModal(); requestPaint(); };
     float W = modal.kind == 4 ? 420.f : 470.f;
-    float H = modal.kind == 1 ? 650.f : modal.kind == 2 ? 514.f : modal.kind == 3 ? 300.f : 200.f;
+    float H = modal.kind == 1 ? 650.f : modal.kind == 2 ? 540.f : modal.kind == 3 ? 300.f : 200.f;
     if (modal.kind == 4) {
         auto l = G.layout(modal.message, 13, 400, W - 40, 400, AL, true);
         DWRITE_TEXT_METRICS m{};
@@ -1296,6 +1297,21 @@ void App::drawModal() {
             } else G.text(v, RW(x + 100, yy, w - 110, 44), 12.5f, P.text, 600);
         };
         row("about.version", kVersion, y, nullptr);
+        if (upd::supported()) {
+            // update status + check button on the version row
+            std::wstring cl = T("upd.check");
+            float cw = G.textWidth(cl, 12, 600) + 24;
+            D2D1_RECT_F br = RW(x + w - 12 - cw, y + 8, cw, 28);
+            if (updState == 3) {
+                std::wstring v = fmtf(T("upd.short"), updInfo.version.c_str());
+                float vw = G.textWidth(v, 12, 600) + 24;
+                U.textButton(hid("about.upd"), RW(x + w - 12 - vw, y + 8, vw, 28), v, [this] { closeModal(); updBanner = true; requestPaint(); }, true);
+            } else {
+                U.textButton(hid("about.upd"), br, cl, [this] { checkForUpdate(true); }, false);
+                const wchar_t* st = updState == 1 ? T("upd.checking") : updState == 2 ? T("upd.uptodate") : nullptr;
+                if (st) G.text(st, RW(x + 100, y, br.left - x - 110, 44), 12, P.text3, 500, AR);
+            }
+        }
         G.line(x, y + 44, x + w, y + 44, P.line);
         row("about.madeby", L"DMIND", y + 44, L"https://www.godgok.com/3dmind/");
         G.line(x, y + 88, x + w, y + 88, P.line);
@@ -1303,6 +1319,11 @@ void App::drawModal() {
         G.line(x, y + 132, x + w, y + 132, P.line);
         row("about.github", L"github.com/XomPM/DeepImage-Viewer", y + 132, L"https://github.com/XomPM/DeepImage-Viewer");
         y += 190;
+        if (upd::supported()) {
+            G.text(T("upd.auto"), RW(x, y - 8, w - 50, 40), 13, P.text, 500);
+            U.toggleSwitch(hid("about.updsw"), x + w - 36, y + 1.5f, S.updateCheck, [this] { S.updateCheck = !S.updateCheck; S.save(); requestPaint(); });
+        } else G.text(T("upd.store"), RW(x, y - 8, w, 40), 12.5f, P.text3, 500);
+        y += 44;
         G.text(std::wstring(T("about.credits")) + L" — " + T("about.credits.text"), RW(x, y, w, 70), 11.5f, P.text3, 400, AL, true, false);
     } else if (modal.kind == 3) {
         auto field = [&](int idx, const char* label, std::wstring& val, float fx) {

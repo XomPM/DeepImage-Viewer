@@ -237,6 +237,9 @@ LRESULT App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (U.tooltipDue()) requestPaint();
         } else if (w == 4) {
             slideStep();
+        } else if (w == 5) {
+            KillTimer(h, 5);
+            checkForUpdate(false);
         } else if (w == 3) {
             KillTimer(h, 3);
             armChromeTimer();
@@ -336,6 +339,7 @@ LRESULT App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_APP_BG: onBgJob((BgJob*)l); return 0;
     case WM_APP_BG_STAGE: onBgStage((uint64_t)w, (BgStage*)l); return 0;
+    case WM_APP_UPD: onUpdateMsg(w, l); return 0;
     case WM_APP_BG_PROGRESS:
         if ((uint64_t)w == bgSeq && bgBusy) {
             if ((int)l < 0) bgDownloading = false;

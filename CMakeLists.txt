@@ -32,7 +32,7 @@ set_target_properties(dvmodel PROPERTIES PREFIX "")
 # ------------------------------------------------------------------ viewer
 add_executable(DeepImage WIN32
     app/main.cpp app/window.cpp app/draw.cpp app/actions.cpp app/common.cpp app/i18n.cpp app/settings.cpp app/gfx.cpp app/ui.cpp
-    app/image.cpp app/imageview.cpp app/model3d.cpp app/thumbs.cpp app/info.cpp app/edit.cpp app/worker.cpp app/archive.cpp app/bgremove.cpp app/bgedit.cpp app/bgpanel.cpp
+    app/image.cpp app/imageview.cpp app/model3d.cpp app/thumbs.cpp app/info.cpp app/edit.cpp app/worker.cpp app/archive.cpp app/bgremove.cpp app/bgedit.cpp app/bgpanel.cpp app/update.cpp
     app/resource.rc)
 target_include_directories(DeepImage PRIVATE ${CMAKE_SOURCE_DIR}/third_party/onnxruntime/include)
 target_link_libraries(DeepImage PRIVATE miniz winhttp bcrypt d2d1 d3d11 dxgi dwrite windowscodecs d3dcompiler_47 dwmapi shlwapi shell32 ole32

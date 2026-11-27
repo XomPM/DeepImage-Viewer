@@ -48,9 +48,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     buildPalette(S.theme == 0 ? systemDarkMode() : S.theme == 2, systemAccentRgb(), S.accent == 0);
 
     std::wstring file;
-    bool settings = false;
+    bool settings = false, about = false;
     for (int i = 1; i < argc; ++i) {
         if (!wcscmp(argv[i], L"--settings")) settings = true;
+        else if (!wcscmp(argv[i], L"--about")) about = true;
         else if (argv[i][0] != L'-' && file.empty()) file = argv[i];
     }
     LocalFree(argv);
@@ -59,6 +60,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     A.markBmp = loadMark(inst);
     if (!file.empty()) A.openPath(file);
     if (settings) A.openSettings();
+    if (about) A.openAbout();
+    A.scheduleUpdateCheck();
     A.requestPaint();
 
     std::thread([] { arc::cleanup(false); }).detach(); // leftovers of earlier sessions
