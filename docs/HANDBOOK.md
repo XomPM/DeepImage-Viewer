@@ -1,7 +1,7 @@
 # DeepImage Viewer — 개발 핸드북 (Claude 작업용)
 
 > 새 채팅에서 이 프로젝트를 이어받을 때 **가장 먼저 읽는 문서**. 사용자와 확정한 기능·디자인·빌드·배포 절차를 정리한다.
-> 마지막 갱신: 2026-11-26 · 현재 버전 **1.0.13**
+> 마지막 갱신: 2026-11-26 · 현재 버전 **1.0.14**
 
 ---
 
@@ -52,6 +52,7 @@ C++20, Windows 전용 API. Linux에서 **llvm-mingw**로 x64·ARM64 교차 빌�
 | `app/capture.cpp` | 3D 화면 캡처(옵션 팝오버, 모델 옆 저장, `--markup`으로 새 창) |
 | `app/notes.cpp` | 3D 노트(앵커 픽, 콜아웃, EDIT 자식 창 편집기, .dvnotes 저장) |
 | `app/json.h` | 미니 JSON 파서/quote/base64 (업데이트·노트 공용) |
+| `app/paste.cpp` | 클립보드 그림(Ctrl+V): 지금 그림에 넣기(markup `Tool::Image`) / 새 그림으로(사진\\DeepImage Viewer) |
 | `app/thumbs.cpp` | 썸네일 서비스(2스레드) + **디스크 캐시** |
 | `app/gfx.cpp` | D2D/DWrite/SVG 아이콘 (아이콘 root svg width/height = 요청 크기 — 아니면 24px로 그려지는 버그) |
 | `app/ui.cpp` | 위젯(toolButton, segmented, slider, swatch, toggle) — 휠은 맨 위 "휠 처리 영역"을 찾아 전달 |
@@ -151,6 +152,14 @@ C++20, Windows 전용 API. Linux에서 **llvm-mingw**로 x64·ARM64 교차 빌�
 ### 이미지 노트 (1.0.13)
 - 3D 노트 코드(`notes.cpp`)를 이미지 보기에도 씀: 앵커 = 그림 픽셀 좌표(`model.x/y`, `snap = 3`), 화면 위치는 `view.toScreen`, 가려짐 없음. N = 노트 모드(비교·표시·스포이드·편집 해제), Shift+N 보이기. 클릭은 Pan 드래그가 4px 미만일 때. 이미지 해독 직후 `loadNotes()`.
 - 저장·복사: `composite(withMarkup)`에서 `inverse(view.matrix()) * M * 타일변환`으로 화면 배치 그대로 그려 넣음(WYSIWYG 크기). **원본 경로에 덮어쓸 때는 `notesInOutput=false`** — .dvnotes가 남아 있어 두 번 보이는 것을 막음. 편집 패널이 열려 있으면 노트를 그리지 않음.
+
+### 표시하기 + 노트, 붙여넣기 (1.0.14)
+- 이미지 보기에서 노트 = 표시하기 도구 `Tool::Note`(레일, N). `setTool(Note)`가 `noting`을 켜고 다른 도구로 바꾸면 끔. 노트 도구 클릭은 Pan 드래그 → 4px 미만이면 `addNoteAt`. 이미지 노트 편집 카드는 오른쪽 위(왼쪽은 레일).
+- 노트 `font`(8~48), `scale`(0.5~3: 글 폭 232·scale, 사진 150·scale, 여백 12·√scale) — 카드 슬라이더 + 편집 중 노트의 오른쪽 아래 모서리 핸들(`note.size` 영역 drag). JSON `font`/`scale`, 새 노트는 `noteDefFont/Scale`.
+- Ctrl+V(`pasteImage`): 클립보드 "PNG" 형식 우선(투명 유지) → 없으면 CF_BITMAP. 이미지 보기면 확인 창(취소/새 그림으로/지금 그림에 넣기), 아니면 바로 새 그림.
+  - 지금 그림에 넣기: 표시하기로 전환, `Markup::addImage`(Shape `Tool::Image`, `img` + 지연 `bmp`, a-b 사각형, 펜 표시 아래에 그림), 화면 1:1 크기·그림의 70% 이하, 선택된 상태(손 도구).
+  - 크기 조절: `Markup::handleAt/beginResize/resizeTo/endResize`(DragKind::ResizeShape) — 사각형·원·모자이크·가리기·그림의 선택 모서리. 그림은 비율 유지(Shift = 자유), 나머지는 반대.
+  - 새 그림으로: `guardUnsaved` → `사진\\DeepImage Viewer\\clipboard_YYYYMMDD-HHMMSS.png` 저장 → `startMarkup` + `openPath`.
 
 ### 정보 창
 - 버전 / 제작 **DMIND**(링크 → `https://www.godgok.com/3dmind/`) / 문의 메일 / **GitHub**(링크 → `https://github.com/XomPM/DeepImage-Viewer`). 링크는 강조색 + hover 밑줄 + 손 커서.
@@ -266,3 +275,4 @@ python3 package.py fonts        # → dist/
 - **1.0.11** (2026-11-27): 업데이트 알림 + 버튼 한 번으로 설치(GitHub digest 검사, Setup `/update` 후 보던 파일 다시 열기), 정보 창 업데이트 확인·자동 확인 스위치. Wine에서 확인 → 다운로드·검사·Setup 실행·재실행까지 동작.
 - **1.0.12** (2026-11-28): 3D 화면 캡처(모델 옆 저장 → 새 창 표시 모드, 크기·배경·오버레이 옵션, 복사/다른 이름), 3D 노트(면·엣지·꼭짓점 화살표 + 글·사진, 회전해도 정면 유지, 가려지면 흐리게, .dvnotes 저장). Wine에서 확인.
 - **1.0.13** (2026-11-28): 이미지 보기 노트(화살표+글·사진, 저장·복사에 포함). GitHub 최신 릴리스는 아직 v1.0.10(1.0.11~1.0.13 release.cmd 미실행).
+- **1.0.14** (2026-11-28): 표시하기에 노트 도구 통합, 노트 글자·상자 크기(이미지·3D), Ctrl+V 붙여넣기(지금 그림에 넣기: 옮기기·모서리 크기 조절 / 새 그림으로), 박스 도형 모서리 크기 조절. Wine에서 확인.

@@ -167,7 +167,7 @@ static bool hit(const Shape& s, D2D1_POINT_2F p, float r) {
         for (int i = 0; i < 4; ++i) if (distSeg(p, c[i], c[(i + 1) % 4]) <= tol) return true;
         return false;
     }
-    case Tool::Mosaic: case Tool::Mask: {
+    case Tool::Mosaic: case Tool::Mask: case Tool::Image: {
         float x0 = std::min(s.a.x, s.b.x), x1 = std::max(s.a.x, s.b.x), y0 = std::min(s.a.y, s.b.y), y1 = std::max(s.a.y, s.b.y);
         return p.x >= x0 - r && p.x <= x1 + r && p.y >= y0 - r && p.y <= y1 + r;
     }
@@ -183,7 +183,7 @@ static bool hit(const Shape& s, D2D1_POINT_2F p, float r) {
 }
 
 void Markup::begin(D2D1_POINT_2F p, float k) {
-    if (!doc() || tool == Tool::Hand) return;
+    if (!doc() || tool == Tool::Hand || tool == Tool::Note) return;
     if (tool == Tool::Eraser) {
         erasing_ = true;
         erased_.clear();
@@ -329,7 +329,7 @@ static D2D1_RECT_F shapeBounds(const Shape& s) {
         r = R(s.pts[0].x, s.pts[0].y, s.pts[0].x, s.pts[0].y);
         for (auto& p : s.pts) { r.left = std::min(r.left, p.x); r.top = std::min(r.top, p.y); r.right = std::max(r.right, p.x); r.bottom = std::max(r.bottom, p.y); }
     } else r = R(std::min(s.a.x, s.b.x), std::min(s.a.y, s.b.y), std::max(s.a.x, s.b.x), std::max(s.a.y, s.b.y));
-    if (s.type != Tool::Mosaic && s.type != Tool::Mask) { float h = s.width / 2; r = R(r.left - h, r.top - h, r.right + h, r.bottom + h); }
+    if (s.type != Tool::Mosaic && s.type != Tool::Mask && s.type != Tool::Image) { float h = s.width / 2; r = R(r.left - h, r.top - h, r.right + h, r.bottom + h); }
     return r;
 }
 
@@ -415,7 +415,15 @@ void Markup::draw(ID2D1DeviceContext* dc, bool includeCurrent, float px) {
         for (auto& s : list) if (s->type == Tool::Hl) drawShape(dc, *s);
         dc->PopLayer();
     }
-    for (auto& s : list) if (s->type != Tool::Hl && s->type != Tool::Mosaic && s->type != Tool::Mask) drawShape(dc, *s);
+    // pasted pictures sit under the pen marks
+    for (auto& s : list)
+        if (s->type == Tool::Image && s->img) {
+            if (!s->bmp) dc->CreateBitmapFromWicBitmap(s->img.Get(), nullptr, &s->bmp);
+            if (s->bmp)
+                dc->DrawBitmap(s->bmp.Get(), R(std::min(s->a.x, s->b.x), std::min(s->a.y, s->b.y), std::max(s->a.x, s->b.x), std::max(s->a.y, s->b.y)), 1,
+                               D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+        }
+    for (auto& s : list) if (s->type != Tool::Hl && s->type != Tool::Mosaic && s->type != Tool::Mask && s->type != Tool::Image) drawShape(dc, *s);
     if (px > 0 && sel_ && std::find(d->shapes.begin(), d->shapes.end(), sel_) != d->shapes.end()) {
         D2D1_RECT_F r = shapeBounds(*sel_);
         r = R(r.left - 5 * px, r.top - 5 * px, r.right + 5 * px, r.bottom + 5 * px);
@@ -497,6 +505,70 @@ void Markup::moveTo(D2D1_POINT_2F p) {
     moveLast_ = p;
 }
 void Markup::endMove() { moving_ = false; selOwned_ = false; }
+
+static bool boxShape(Tool t) { return t == Tool::Rect || t == Tool::Ellipse || t == Tool::Mosaic || t == Tool::Mask || t == Tool::Image; }
+
+int Markup::handleAt(D2D1_POINT_2F p, float k) {
+    auto s = selection();
+    if (!s || !boxShape(s->type)) return -1;
+    D2D1_RECT_F r = shapeBounds(*s);
+    r = R(r.left - 5 * k, r.top - 5 * k, r.right + 5 * k, r.bottom + 5 * k);
+    D2D1_POINT_2F cs[4] = {{r.left, r.top}, {r.right, r.top}, {r.right, r.bottom}, {r.left, r.bottom}};
+    for (int i = 0; i < 4; ++i)
+        if (std::fabs(p.x - cs[i].x) <= 8 * k && std::fabs(p.y - cs[i].y) <= 8 * k) return i;
+    return -1;
+}
+
+void Markup::beginResize(int corner) {
+    auto s = selection();
+    if (!s) return;
+    selOwned_ = false; // one undo step per resize
+    ownSelection();
+    float x0 = std::min(sel_->a.x, sel_->b.x), x1 = std::max(sel_->a.x, sel_->b.x), y0 = std::min(sel_->a.y, sel_->b.y), y1 = std::max(sel_->a.y, sel_->b.y);
+    sel_->a = {x0, y0};
+    sel_->b = {x1, y1};
+    // the opposite corner stays put
+    resizeFixed_ = corner == 0 ? D2D1_POINT_2F{x1, y1} : corner == 1 ? D2D1_POINT_2F{x0, y1} : corner == 2 ? D2D1_POINT_2F{x0, y0} : D2D1_POINT_2F{x1, y0};
+    resizeAspect_ = (x1 - x0) / std::max(1e-3f, y1 - y0);
+    resizing_ = corner;
+}
+
+void Markup::resizeTo(D2D1_POINT_2F p, bool free) {
+    if (resizing_ < 0 || !sel_) return;
+    float dx = p.x - resizeFixed_.x, dy = p.y - resizeFixed_.y;
+    // pictures keep their shape unless Shift is held
+    const bool keep = sel_->type == Tool::Image ? !free : free;
+    if (keep) {
+        float w = std::fabs(dx), h = std::fabs(dy);
+        if (w / std::max(1e-3f, h) > resizeAspect_) h = w / resizeAspect_;
+        else w = h * resizeAspect_;
+        dx = dx < 0 ? -w : w;
+        dy = dy < 0 ? -h : h;
+    }
+    if (std::fabs(dx) < 2) dx = dx < 0 ? -2.f : 2.f;
+    if (std::fabs(dy) < 2) dy = dy < 0 ? -2.f : 2.f;
+    sel_->a = resizeFixed_;
+    sel_->b = {resizeFixed_.x + dx, resizeFixed_.y + dy};
+    sel_->cacheVer = -1; // mosaic cells
+}
+
+void Markup::addImage(ComPtr<IWICBitmap> img, D2D1_POINT_2F c, float w, float h) {
+    auto d = doc();
+    if (!d || !img) return;
+    auto s = std::make_shared<Shape>();
+    s->type = Tool::Image;
+    s->color = D2D1::ColorF(1, 1, 1, 1);
+    s->width = 0;
+    s->img = std::move(img);
+    s->a = {c.x - w / 2, c.y - h / 2};
+    s->b = {c.x + w / 2, c.y + h / 2};
+    auto next = d->shapes;
+    next.push_back(s);
+    commit(next);
+    sel_ = s;
+    selOwned_ = false;
+    tool = Tool::Hand;
+}
 void Markup::deleteSelection() {
     auto d = doc();
     if (!d || !selection()) return;

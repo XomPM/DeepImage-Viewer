@@ -269,6 +269,10 @@ LRESULT App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
                         int hh = cropHitTest(x, y);
                         c = LoadCursorW(nullptr, hh == 8 ? IDC_SIZEALL : (hh == 0 || hh == 4) ? IDC_SIZENWSE : (hh == 2 || hh == 6) ? IDC_SIZENESW
                                                            : (hh == 1 || hh == 5) ? IDC_SIZENS : (hh == 3 || hh == 7) ? IDC_SIZEWE : IDC_CROSS);
+                    } else if (annot && markup.tool == Tool::Hand && !spaceDown && drag == DragKind::None &&
+                               markup.handleAt(view.toImage(x, y), 1.f / view.s) >= 0) {
+                        int hh = markup.handleAt(view.toImage(x, y), 1.f / view.s);
+                        c = LoadCursorW(nullptr, hh == 0 || hh == 2 ? IDC_SIZENWSE : IDC_SIZENESW);
                     } else if (annot && markup.tool == Tool::Hand && !spaceDown &&
                                (drag == DragKind::MoveShape || (drag == DragKind::None && markup.shapeAt(view.toImage(x, y), 1.f / view.s))))
                         c = LoadCursorW(nullptr, IDC_SIZEALL);
@@ -539,7 +543,15 @@ void App::onMouseDown(float x, float y, int button, WPARAM keys) {
             if (cropHandle >= 0) drag = DragKind::Crop;
             return;
         }
+        if (button == 0 && annot && markup.tool == Tool::Note) { drag = DragKind::Pan; return; } // a click places a note
         if (button == 0 && annot && markup.tool == Tool::Hand && !spaceDown) {
+            const int hh = markup.handleAt(view.toImage(x, y), 1.f / view.s);
+            if (hh >= 0) {
+                markup.beginResize(hh);
+                drag = DragKind::ResizeShape;
+                requestPaint();
+                return;
+            }
             if (markup.pick(view.toImage(x, y), 1.f / view.s)) {
                 markup.beginMove(view.toImage(x, y));
                 drag = DragKind::MoveShape;
@@ -582,6 +594,7 @@ void App::onMouseMove(float x, float y, WPARAM keys) {
     switch (drag) {
     case DragKind::Pan: eachView([&](ImageView& v, const D2D1_RECT_F&) { v.panBy(dx, dy); }); redraw = true; break;
     case DragKind::MoveShape: markup.moveTo(view.toImage(x, y)); redraw = true; break;
+    case DragKind::ResizeShape: markup.resizeTo(view.toImage(x, y), GetKeyState(VK_SHIFT) < 0); redraw = true; break;
     case DragKind::BgBrush: {
         auto p = view.toImage(x, y);
         auto r = bge.stroke(bgLast.x, bgLast.y, p.x, p.y, bgBrush / 2 / view.s, bgTool == 1);
@@ -646,6 +659,7 @@ void App::onMouseUp(float x, float y, int button) {
     if (button == 0 && U.mouseUp(x, y)) { requestPaint(); ensureTimer(); return; }
     if (drag == DragKind::Draw) markup.end();
     if (drag == DragKind::MoveShape) markup.endMove();
+    if (drag == DragKind::ResizeShape) markup.endResize();
     if (drag == DragKind::BgBrush) bge.endStroke(bgStrokeRect);
     if (drag == DragKind::BgArea) {
         int x0 = (int)std::floor(std::min(bgAreaA.x, bgAreaB.x)), y0 = (int)std::floor(std::min(bgAreaA.y, bgAreaB.y));
@@ -754,6 +768,7 @@ bool App::onKey(UINT vk, bool down) {
         switch (vk) {
         case 'O': guardUnsaved([this] { openDialog(); }); return done();
         case 'S': if (panel == EditPanel::Bg) return done(); if (img) saveAs(); else if (mdl) capture3d(2); return done();
+        case 'V': pasteImage(); return done();
         case 'C': if (img && panel != EditPanel::Bg) copyImage(); else if (mdl) capture3d(1); return done();
         case 'Z': if (panel == EditPanel::Bg) bgUndo(); else if (annot) { shift ? markup.redo() : markup.undo(); } else if (img && editMode) undoEdit(); return done();
         case 'Y': if (annot) markup.redo(); return done();
@@ -797,6 +812,7 @@ bool App::onKey(UINT vk, bool down) {
         case 'X': t = Tool::Eraser; break;
         case 'Z': t = Tool::Mosaic; break;
         case 'K': t = Tool::Mask; break;
+        case 'N': t = Tool::Note; break;
         default: tool = false;
         }
         if (tool) { setTool(t); return done(); }
@@ -805,6 +821,7 @@ bool App::onKey(UINT vk, bool down) {
         if (vk == VK_OEM_6) { markup.setWidth(std::min(120.f, markup.curWidth(k) + 2), k); markup.endStyleEdit(); return done(); }
         if ((vk == VK_DELETE || vk == VK_BACK) && markup.selection()) { markup.deleteSelection(); return done(); }
         if (vk == VK_ESCAPE && markup.selection()) { markup.deselect(); return done(); }
+        if (vk == VK_ESCAPE && noteEdit >= 0) { closeNoteEditor(); return done(); }
         if (vk == VK_ESCAPE || vk == VK_RETURN || vk == 'E') { toggleAnnot(0); return done(); }
         if (vk == VK_SPACE) { spaceDown = true; return true; }
     }

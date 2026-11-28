@@ -102,15 +102,22 @@ void App::toggleNotes(int on) {
     if (v) {
         if (measuring) toggleMeasure(0);
         if (img) {
-            // one click tool at a time
+            // in the image viewer notes are a markup tool
+            noting = false;
             if (compare) toggleCompare(0);
-            if (annot) toggleAnnot(0);
             if (picking) togglePicker(0);
-            if (editMode) toggleEdit(0);
+            if (!annot) toggleAnnot(1);
+            if (!S.notesShow) { S.notesShow = true; S.save(); }
+            setTool(Tool::Note);
+            requestPaint();
+            return;
         }
         if (!S.notesShow) { S.notesShow = true; S.save(); }
         toast(T(img ? "note.hint.img" : "note.hint"));
-    } else closeNoteEditor();
+    } else {
+        closeNoteEditor();
+        if (mode == Mode::Image && annot && markup.tool == Tool::Note) markup.tool = Tool::Pen;
+    }
     requestPaint();
 }
 
@@ -142,6 +149,8 @@ void App::loadNotes() {
         n.dx = (float)json::num(o, "dx", 80);
         n.dy = (float)json::num(o, "dy", -70);
         n.color = std::clamp((int)json::num(o, "color"), 0, 5);
+        n.font = std::clamp((float)json::num(o, "font", 13), 8.f, 48.f);
+        n.scale = std::clamp((float)json::num(o, "scale", 1), .5f, 3.f);
         n.text = fromUtf8(o.str("text"));
         std::string img = o.str("image");
         if (!img.empty()) {
@@ -169,8 +178,8 @@ void App::saveNotes() {
     for (size_t i = 0; i < notes.size(); ++i) {
         const auto& n = notes[i];
         char nums[256];
-        snprintf(nums, sizeof nums, "\"x\": %.9g, \"y\": %.9g, \"z\": %.9g, \"snap\": %d, \"dx\": %.1f, \"dy\": %.1f, \"color\": %d", n.model.x, n.model.y,
-                 n.model.z, n.snap, n.dx, n.dy, n.color);
+        snprintf(nums, sizeof nums, "\"x\": %.9g, \"y\": %.9g, \"z\": %.9g, \"snap\": %d, \"dx\": %.1f, \"dy\": %.1f, \"color\": %d, \"font\": %.1f, \"scale\": %.2f",
+                 n.model.x, n.model.y, n.model.z, n.snap, n.dx, n.dy, n.color, n.font, n.scale);
         o << (i ? ",\n" : "\n") << "    {" << nums << ", \"text\": " << json::quote(toUtf8(n.text));
         if (!n.png.empty()) o << ", \"image\": \"" << json::base64(n.png) << "\"";
         o << "}";
@@ -212,6 +221,8 @@ void App::addNoteAt(float x, float y) {
         n.snap = h.snap;
     }
     n.color = (int)(notes.size() % 6);
+    n.font = noteDefFont;
+    n.scale = noteDefScale;
     n.id = noteNextId++;
     // callout away from the middle of the view, so it does not sit on the model
     float vx = x - cxOf(pane), vy = y - cyOf(pane), l = std::hypot(vx, vy);
@@ -381,7 +392,7 @@ void App::drawNotes(bool capture, D2D1_RECT_F pane) {
         const D2D1_COLOR_F c = withA(rgba(kNoteColors[n.color % 6]), fa);
         const D2D1_COLOR_F dark = withA(rgba(0x000000, .5f), fa);
         // callout size: wrapped text + picture
-        const float maxW = 232;
+        const float sc = n.scale, maxW = 232 * sc, pad = 12 * std::sqrt(sc);
         std::wstring text = n.text;
         if ((int)i == noteEdit && noteEditHwnd) {
             int len = GetWindowTextLengthW(noteEditHwnd);
@@ -393,7 +404,7 @@ void App::drawNotes(bool capture, D2D1_RECT_F pane) {
         float tw = 0, th = 0;
         ComPtr<IDWriteTextLayout> lay;
         if (!text.empty()) {
-            lay = G.layout(text, 12.5f, 500, maxW, 600);
+            lay = G.layout(text, n.font, 500, maxW, 2000);
             DWRITE_TEXT_METRICS tm{};
             if (lay && SUCCEEDED(lay->GetMetrics(&tm))) { tw = std::ceil(tm.widthIncludingTrailingWhitespace); th = std::ceil(tm.height); }
         }
@@ -401,12 +412,12 @@ void App::drawNotes(bool capture, D2D1_RECT_F pane) {
         if (n.img) {
             UINT w = 0, h = 0;
             n.img->GetSize(&w, &h);
-            float s = std::min({maxW / w, 150.f / h, 1.f});
+            float s = std::min({maxW / w, 150.f * sc / h, 1.f * sc});
             iw = std::max(1.f, w * s);
             ih = std::max(1.f, h * s);
             if (!n.bmp) dc->CreateBitmapFromWicBitmap(n.img.Get(), nullptr, &n.bmp);
         }
-        const float bw = std::max({tw, iw, 36.f}) + 24, bh = 12 + th + (n.img ? ih + (th > 0 ? 8 : 0) : 0) + 12;
+        const float bw = std::max({tw, iw, 36.f}) + 2 * pad, bh = pad + th + (n.img ? ih + (th > 0 ? 8 : 0) : 0) + pad;
         float bx = ax + n.dx - bw / 2, by = ay + n.dy - bh / 2;
         bx = std::clamp(bx, pane.left + 6, std::max(pane.left + 6, pane.right - bw - 6));
         by = std::clamp(by, pane.top + 6, std::max(pane.top + 6, pane.bottom - bh - 6));
@@ -453,12 +464,12 @@ void App::drawNotes(bool capture, D2D1_RECT_F pane) {
         G.fill(box, withA(P.dark ? rgba(0x1C1C1F, .96f) : rgba(0xFFFFFF, .97f), hidden ? .7f : 1.f), 10);
         G.stroke(box, (int)i == noteEdit ? P.accent : withA(c, .9f), 10, (int)i == noteEdit ? 2.f : 1.5f);
         G.fill(RW(box.left + 1, box.top + 9, 3.5f, bh - 18), c, 1.5f);
-        float y = box.top + 12;
+        float y = box.top + pad;
         if (lay) {
-            dc->DrawTextLayout(D2D1::Point2F(box.left + 12, y), lay.Get(), G.brush(withA(empty ? P.text3 : P.text, hidden ? .5f : 1.f)));
+            dc->DrawTextLayout(D2D1::Point2F(box.left + pad, y), lay.Get(), G.brush(withA(empty ? P.text3 : P.text, hidden ? .5f : 1.f)));
             y += th + 8;
         }
-        if (n.bmp) dc->DrawBitmap(n.bmp.Get(), RW(box.left + 12, y, iw, ih), fa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+        if (n.bmp) dc->DrawBitmap(n.bmp.Get(), RW(box.left + pad, y, iw, ih), fa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
         // number badge on the corner
         G.circle(box.left + 2, box.top + 2, 10, dark);
         G.circle(box.left + 2, box.top + 2, 9, c);
@@ -481,6 +492,27 @@ void App::drawNotes(bool capture, D2D1_RECT_F pane) {
                 if (noteDragMoved) { noteDragMoved = false; saveNotes(); return; }
                 openNoteEditor((int)(it - notes.begin()));
             };
+            if ((int)i == noteEdit) {
+                // corner handle: drag to make the whole callout bigger or smaller
+                D2D1_RECT_F hr = RW(box.right - 7, box.bottom - 7, 14, 14);
+                G.fill(hr, rgba(0xFFFFFF), 3);
+                G.stroke(hr, P.accent, 3, 1.5f);
+                G.line(hr.left + 4, hr.bottom - 4, hr.right - 4, hr.top + 4, P.accent, 1.2f);
+                auto& hg = U.add(hid("note.size", (int)id), R(hr.left - 3, hr.top - 3, hr.right + 3, hr.bottom + 3));
+                hg.cursor = LoadCursorW(nullptr, IDC_SIZENWSE);
+                const float cx0 = cxOf(box), cy0 = cyOf(box);
+                hg.drag = [this, id, cx0, cy0](float x, float y, bool first) {
+                    auto it = std::find_if(notes.begin(), notes.end(), [id](const Note3D& q) { return q.id == id; });
+                    if (it == notes.end()) return;
+                    const float d = std::max(8.f, std::hypot(x - cx0, y - cy0));
+                    if (first) { noteResizeD0 = d; noteResizeS0 = it->scale; return; }
+                    const float k = d / noteResizeD0;
+                    it->scale = std::clamp(noteResizeS0 * k, .5f, 3.f);
+                    noteDefScale = it->scale;
+                    requestPaint();
+                };
+                hg.click = [this] { saveNotes(); };
+            }
         }
     }
     // where a click would put the next note
@@ -522,8 +554,9 @@ void App::drawNoteCard() {
         return;
     }
     auto& n = notes[noteEdit];
-    const float w = 320, h = n.img ? 330 : 286;
-    D2D1_RECT_F r = RW(rcViewport.left + 16, rcViewport.top + 70, w, h);
+    const float w = 320, h = (n.img ? 330 : 286) + 104;
+    // 3D: top left (the measurement list is on the right); pictures: top right (the markup rail is on the left)
+    D2D1_RECT_F r = mode == Mode::Image ? RW(rcViewport.right - 16 - w, rcViewport.top + 70, w, h) : RW(rcViewport.left + 16, rcViewport.top + 70, w, h);
     noteCardRect = r;
     U.glassPanel(r, 14);
     U.add(hid("note.card"), r);
@@ -547,6 +580,25 @@ void App::drawNoteCard() {
     if (!noteEditBrush) noteEditBrush = CreateSolidBrush(cref(P.dark ? rgba(0x2A2A2E) : rgba(0xF2F2F5)));
     float y = tb.bottom + 12;
     // colour
+    // text size and callout size
+    auto sizeRow = [&](const char* key, std::wstring val, float v, float mn, float mx, std::function<void(float)> set, int k) {
+        G.text(T(key), RW(r.left + 16, y, 160, 20), 12, P.text2, 500);
+        G.text(val, RW(r.left + 16, y, w - 32, 20), 12, P.text3, 600, AR);
+        U.slider(hid("note.sz", k), RW(r.left + 18, y + 22, w - 36, 20), v, mn, mx, std::move(set));
+        y += 52;
+    };
+    sizeRow("note.font", fmtf(L"%.0f", n.font), n.font, 8, 48, [this](float v) {
+        if (noteEdit < 0) return;
+        notes[noteEdit].font = noteDefFont = std::round(v);
+        SetTimer(hwnd, 6, 700, nullptr);
+        requestPaint();
+    }, 0);
+    sizeRow("note.size", fmtf(L"%.0f%%", n.scale * 100), n.scale, .5f, 3, [this](float v) {
+        if (noteEdit < 0) return;
+        notes[noteEdit].scale = noteDefScale = std::round(v * 20) / 20;
+        SetTimer(hwnd, 6, 700, nullptr);
+        requestPaint();
+    }, 1);
     G.text(T("note.color"), RW(r.left + 16, y, 80, 28), 12, P.text2, 500);
     for (int k = 0; k < 6; ++k) {
         const int col = k;

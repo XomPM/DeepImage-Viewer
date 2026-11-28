@@ -642,8 +642,8 @@ void App::drawToolbars() {
         if (annot) {
             // the hand tool edits the selected shape, so it shows that shape's controls
             const Tool stt = markup.styleTool();
-            const bool hasColor = stt != Tool::Eraser && stt != Tool::Hand && stt != Tool::Mosaic;
-            const bool hasWidth = stt != Tool::Hand && stt != Tool::Mask;
+            const bool hasColor = stt != Tool::Eraser && stt != Tool::Hand && stt != Tool::Mosaic && stt != Tool::Note && stt != Tool::Image;
+            const bool hasWidth = stt != Tool::Hand && stt != Tool::Mask && stt != Tool::Note && stt != Tool::Image;
             const bool hasFill = markup.tool == Tool::Rect || markup.tool == Tool::Ellipse;
             std::vector<TbItem> it;
             if (hasColor) { it.push_back({TbItem::Swatches}); if (hasWidth) it.push_back({TbItem::Sep}); }
@@ -726,7 +726,6 @@ void App::drawToolbars() {
                 {TbItem::Btn, "play", "slideshow", [this] { toggleSlideshow(); }, slideshow, files.size() > 1},
                 {TbItem::Btn, "pipette", "picker", [this] { togglePicker(); }, picking},
                 {TbItem::Btn, "pen-line", "annotate", [this] { toggleAnnot(1); }, false, !compare, TL("annot.title")},
-                {TbItem::Btn, "message-square-plus", "note.img", [this] { toggleNotes(); }, noting, !compare},
                 {TbItem::Btn, "sliders-horizontal", "edit", [this] { toggleEdit(1); }, false, !compare, TL("edit")},
                 {TbItem::Sep},
                 {TbItem::Btn, "copy", compare ? "copy.compare" : "copy", [this] { copyImage(); }},
@@ -786,7 +785,7 @@ void App::drawRail() {
     const RI items[] = {{0, Tool::Hand, "hand", "tool.hand"}, {1}, {0, Tool::Pen, "pen-line", "tool.pen"}, {0, Tool::Hl, "highlighter", "tool.hl"}, {1},
                         {0, Tool::Line, "minus", "tool.line"}, {0, Tool::Arrow, "move-up-right", "tool.arrow"}, {0, Tool::Rect, "square", "tool.rect"},
                         {0, Tool::Ellipse, "circle", "tool.ellipse"}, {1}, {0, Tool::Mosaic, "mosaic", "tool.mosaic"}, {0, Tool::Mask, "mask", "tool.mask"},
-                        {1}, {0, Tool::Eraser, "eraser", "tool.eraser"}, {1}, {2}, {3}};
+                        {1}, {0, Tool::Note, "message-square-plus", "tool.note"}, {0, Tool::Eraser, "eraser", "tool.eraser"}, {1}, {2}, {3}};
     float h = 10;
     for (auto& i : items) h += i.type == 1 ? 9 : 40;
     D2D1_RECT_F r = RW(rcViewport.left + 14, cyOf(rcViewport) - h / 2, 48, h);

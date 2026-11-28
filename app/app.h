@@ -27,7 +27,7 @@ struct FileEntry {
 
 enum class Mode { Empty, Image, Model };
 enum class EditPanel { None, Crop, Adjust, Bg };
-enum class DragKind { None, Pan, Draw, Orbit, PanModel, Crop, MoveShape, BgBrush, BgArea };
+enum class DragKind { None, Pan, Draw, Orbit, PanModel, Crop, MoveShape, ResizeShape, BgBrush, BgArea };
 
 struct Toast { std::wstring text; bool error; DWORD t0; };
 
@@ -126,6 +126,8 @@ public:
         float dx = 80, dy = -70;      // callout centre relative to the anchor (DIPs)
         std::wstring text;
         int color = 0;
+        float font = 13;              // text size (DIPs)
+        float scale = 1;              // callout size: text width and picture size
         ComPtr<IWICBitmap> img;       // optional picture (long side <= 480 px)
         std::string png;              // the picture encoded, for the notes file
         ComPtr<ID2D1Bitmap1> bmp;     // GPU copy (lazy)
@@ -136,6 +138,8 @@ public:
     bool noting = false;              // note mode: clicking the model adds a note
     int noteEdit = -1;                // note in the editor card
     uint32_t noteNextId = 1;
+    float noteDefFont = 13, noteDefScale = 1; // new notes start like the last one edited
+    float noteResizeD0 = 1, noteResizeS0 = 1;
     HWND noteEditHwnd = nullptr;
     HFONT noteFont = nullptr;
     HBRUSH noteEditBrush = nullptr;
@@ -169,6 +173,11 @@ public:
     ComPtr<IWICBitmap> renderCapture();
     void capture3d(int action); // 0 save + (open), 1 copy, 2 save as
     void drawCaptureMenu();
+
+    // clipboard picture: into the current picture (a movable, resizable markup layer) or as a new picture
+    void pasteImage();
+    void pasteIntoCurrent(ComPtr<IWICBitmap> img);
+    void pasteAsNew(ComPtr<IWICBitmap> img);
     // updates (GitHub installs; Store packages update through the Store)
     struct UpdResult { bool ok = false; upd::Info info; std::wstring path; std::string err; };
     int updState = 0;      // 0 idle, 1 checking, 2 up to date, 3 available, 4 downloading, 5 check failed

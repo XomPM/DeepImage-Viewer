@@ -431,10 +431,10 @@ void App::toggleAnnot(int on) {
     if (v && (mode != Mode::Image || !doc.loaded())) return;
     if (v && compare) toggleCompare(0);
     if (v) { if (slideshow) toggleSlideshow(0); picking = false; }
-    if (!v) markup.deselect();
+    if (!v) { markup.deselect(); if (noting) { noting = false; closeNoteEditor(); } }
     if (v && editMode) toggleEdit(0);
     annot = v;
-    if (v && markup.tool == Tool::Hand) markup.tool = Tool::Pen;
+    if (v && (markup.tool == Tool::Hand || markup.tool == Tool::Note)) markup.tool = Tool::Pen;
     requestPaint();
 }
 
@@ -455,6 +455,9 @@ void App::toggleEdit(int on) {
 
 void App::setTool(Tool t) {
     if (t != Tool::Hand) markup.deselect();
+    // notes are one of the markup tools in the image viewer
+    if (t == Tool::Note && !noting) { noting = true; hover3d.ok = false; toast(T("note.hint.img")); }
+    else if (t != Tool::Note && noting && mode == Mode::Image) { noting = false; closeNoteEditor(); }
     markup.tool = t;
     requestPaint();
 }

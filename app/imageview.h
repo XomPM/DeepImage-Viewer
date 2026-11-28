@@ -49,7 +49,7 @@ private:
     float from_[3]{}, to_[3]{};
 };
 
-enum class Tool { Hand, Pen, Hl, Line, Arrow, Rect, Ellipse, Eraser, Mosaic, Mask };
+enum class Tool { Hand, Pen, Hl, Line, Arrow, Rect, Ellipse, Eraser, Mosaic, Mask, Note, Image }; // Note: placed by the app (notes), Image: pasted picture
 
 struct Shape {
     Tool type;
@@ -63,6 +63,9 @@ struct Shape {
     mutable int cols = 0, rows = 0, cacheVer = -1;
     mutable float cacheCell = 0;
     mutable D2D1_RECT_F cacheRect{}, cellOrigin{};
+    // pasted picture (Tool::Image), drawn into the rectangle a-b
+    ComPtr<IWICBitmap> img;
+    mutable ComPtr<ID2D1Bitmap1> bmp;
 };
 
 struct ToolStyle { D2D1_COLOR_F color; float width; bool fill; };
@@ -98,6 +101,14 @@ public:
     void moveTo(D2D1_POINT_2F p);
     void endMove();
     bool moving() const { return moving_; }
+    // corner handles of the selection (box shapes and pictures): 0..3 or -1
+    int handleAt(D2D1_POINT_2F p, float k);
+    void beginResize(int corner);
+    void resizeTo(D2D1_POINT_2F p, bool free);
+    void endResize() { resizing_ = -1; selOwned_ = false; }
+    bool resizing() const { return resizing_ >= 0; }
+    // a pasted picture, centred on c with the given size (image px); selected so it can be moved / resized
+    void addImage(ComPtr<IWICBitmap> img, D2D1_POINT_2F c, float w, float h);
     std::shared_ptr<Shape> selection();
     void deselect() { sel_.reset(); }
     void deleteSelection();
@@ -126,6 +137,9 @@ private:
     void drawMosaic(ID2D1DeviceContext* dc, const Shape& s);
     std::shared_ptr<Shape> cur_, sel_;
     bool erasing_ = false, moving_ = false, selOwned_ = false, moved_ = false;
+    int resizing_ = -1;
+    float resizeAspect_ = 1;
+    D2D1_POINT_2F resizeFixed_{};
     D2D1_POINT_2F moveLast_{};
     std::vector<std::shared_ptr<Shape>> erased_;
     ComPtr<IWICBitmap> src_;
