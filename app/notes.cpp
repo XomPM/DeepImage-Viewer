@@ -93,15 +93,23 @@ LRESULT CALLBACK noteEditThunk(HWND h, UINT m, WPARAM w, LPARAM l) { return g_no
 // ------------------------------------------------------------------ mode, storage
 void App::toggleNotes(int on) {
     bool v = on < 0 ? !noting : on != 0;
-    if (mode != Mode::Model || !mv.hasModel()) v = false;
+    const bool img = mode == Mode::Image && doc.loaded();
+    if (!(mode == Mode::Model && mv.hasModel()) && !img) v = false;
     if (v == noting) return;
     noting = v;
     hintGone = true;
     hover3d.ok = false;
     if (v) {
         if (measuring) toggleMeasure(0);
+        if (img) {
+            // one click tool at a time
+            if (compare) toggleCompare(0);
+            if (annot) toggleAnnot(0);
+            if (picking) togglePicker(0);
+            if (editMode) toggleEdit(0);
+        }
         if (!S.notesShow) { S.notesShow = true; S.save(); }
-        toast(T("note.hint"));
+        toast(T(img ? "note.hint.img" : "note.hint"));
     } else closeNoteEditor();
     requestPaint();
 }
@@ -130,7 +138,7 @@ void App::loadNotes() {
         if (o.t != json::J::Obj) continue;
         Note3D n;
         n.model = {(float)json::num(o, "x"), (float)json::num(o, "y"), (float)json::num(o, "z")};
-        n.snap = std::clamp((int)json::num(o, "snap"), 0, 2);
+        n.snap = std::clamp((int)json::num(o, "snap"), 0, 3); // 3 = a point of a picture
         n.dx = (float)json::num(o, "dx", 80);
         n.dy = (float)json::num(o, "dy", -70);
         n.color = std::clamp((int)json::num(o, "color"), 0, 5);
@@ -187,12 +195,22 @@ void App::saveNotes() {
 // ------------------------------------------------------------------ adding, editing
 void App::addNoteAt(float x, float y) {
     const D2D1_RECT_F pane = compare && compareModels ? rcPaneL : rcViewport;
-    if (!inside(pane, x, y) || !mv.hasModel()) return;
-    auto h = mv.pick(x - pane.left, y - pane.top, rw(pane), rh(pane));
-    if (!h.ok) { toast(T("note.miss"), true); return; }
+    if (!inside(pane, x, y)) return;
     Note3D n;
-    n.model = h.model;
-    n.snap = h.snap;
+    if (mode == Mode::Image) {
+        // a point of the picture (pixels)
+        if (!doc.loaded()) return;
+        auto p = view.toImage(x, y);
+        if (p.x < 0 || p.y < 0 || p.x > view.imgW || p.y > view.imgH) { toast(T("note.miss.img"), true); return; }
+        n.model = {p.x, p.y, 0};
+        n.snap = 3;
+    } else {
+        if (!mv.hasModel()) return;
+        auto h = mv.pick(x - pane.left, y - pane.top, rw(pane), rh(pane));
+        if (!h.ok) { toast(T("note.miss"), true); return; }
+        n.model = h.model;
+        n.snap = h.snap;
+    }
     n.color = (int)(notes.size() % 6);
     n.id = noteNextId++;
     // callout away from the middle of the view, so it does not sit on the model
@@ -324,7 +342,8 @@ LRESULT App::noteEditMsg(HWND h, UINT m, WPARAM w, LPARAM l) {
 
 // ------------------------------------------------------------------ visibility, drawing
 void App::updateNoteVisibility(bool force) {
-    if (notes.empty() || !mv.hasModel()) return;
+    if (notes.empty()) return;
+    if (mode != Mode::Model || !mv.hasModel()) { for (auto& n : notes) n.hidden = false; return; }
     const DWORD now = GetTickCount();
     if (!force && (now - noteVisTick < 160 || drag == DragKind::Orbit || drag == DragKind::PanModel)) {
         SetTimer(hwnd, 7, 200, nullptr); // look again once the camera has settled
@@ -335,7 +354,9 @@ void App::updateNoteVisibility(bool force) {
 }
 
 void App::drawNotes(bool capture, D2D1_RECT_F pane) {
-    if (mode != Mode::Model || !mv.hasModel() || notesKey != cur.path) return;
+    const bool img = mode == Mode::Image && doc.loaded();
+    if (!(mode == Mode::Model && mv.hasModel()) && !img) return;
+    if (notesKey != cur.path) return;
     if (!S.notesShow && !noting) return;
     updateNoteVisibility(capture);
     auto dc = G.dc.Get();
@@ -347,9 +368,15 @@ void App::drawNotes(bool capture, D2D1_RECT_F pane) {
         auto& n = notes[i];
         if ((pass == 0) != n.hidden) continue;
         float ax, ay;
-        if (!mv.project(mv.toWorld(n.model), rw(pane), rh(pane), ax, ay)) continue;
-        ax += pane.left;
-        ay += pane.top;
+        if (img) {
+            auto s = view.toScreen(n.model.x, n.model.y);
+            ax = s.x;
+            ay = s.y;
+        } else {
+            if (!mv.project(mv.toWorld(n.model), rw(pane), rh(pane), ax, ay)) continue;
+            ax += pane.left;
+            ay += pane.top;
+        }
         const float fa = n.hidden ? .38f : 1.f; // behind the model: faded
         const D2D1_COLOR_F c = withA(rgba(kNoteColors[n.color % 6]), fa);
         const D2D1_COLOR_F dark = withA(rgba(0x000000, .5f), fa);
@@ -457,7 +484,20 @@ void App::drawNotes(bool capture, D2D1_RECT_F pane) {
         }
     }
     // where a click would put the next note
-    if (!capture && noting && hover3d.ok && !U.overWidget(lastX, lastY)) {
+    if (!capture && noting && img && mouseInViewport && !U.overWidget(lastX, lastY)) {
+        auto p = view.toImage(lastX, lastY);
+        if (p.x >= 0 && p.y >= 0 && p.x <= view.imgW && p.y <= view.imgH) {
+            const D2D1_COLOR_F c = rgba(kNoteColors[notes.size() % 6]);
+            G.circle(lastX, lastY, 7, darkHover);
+            G.circle(lastX, lastY, 5.5f, c);
+            std::wstring t = T("note.here");
+            float tw = G.textWidth(t, 11, 600) + 12;
+            D2D1_RECT_F cr = RW(lastX + 12, lastY + 10, tw, 20);
+            G.fill(cr, rgba(0x111214, .78f), 5);
+            G.text(t, cr, 11, rgba(0xFFFFFF), 600, AC);
+        }
+    }
+    if (!capture && noting && !img && hover3d.ok && !U.overWidget(lastX, lastY)) {
         float hx, hy;
         if (mv.project(hover3d.world, rw(pane), rh(pane), hx, hy)) {
             hx += pane.left;
@@ -477,7 +517,7 @@ void App::drawNotes(bool capture, D2D1_RECT_F pane) {
 }
 
 void App::drawNoteCard() {
-    if (noteEdit < 0 || noteEdit >= (int)notes.size() || mode != Mode::Model) {
+    if (noteEdit < 0 || noteEdit >= (int)notes.size() || mode == Mode::Empty) {
         if (noteEditHwnd && IsWindowVisible(noteEditHwnd)) ShowWindow(noteEditHwnd, SW_HIDE);
         return;
     }

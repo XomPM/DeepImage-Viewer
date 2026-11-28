@@ -569,6 +569,7 @@ void App::onMouseMove(float x, float y, WPARAM keys) {
     if (inVp != mouseInViewport) { mouseInViewport = inVp; redraw = true; }
     if (drag == DragKind::None) pokeChrome(x, y);
     if (panel == EditPanel::Bg && (bgTool == 1 || bgTool == 2) && (inVp || drag == DragKind::BgBrush)) redraw = true; // brush cursor
+    if (noting && mode == Mode::Image && inVp) redraw = true; // where the note would go
     if ((measuring || noting) && drag == DragKind::None && mode == Mode::Model && !U.overWidget(x, y)) pickMeasure(x, y, false);
     if (picking) {
         bool was = hoverOk;
@@ -656,7 +657,7 @@ void App::onMouseUp(float x, float y, int button) {
     }
     // a click (not a drag) while measuring places a point
     if (measuring && drag == DragKind::Orbit && std::hypot(x - downX, y - downY) < 4) pickMeasure(x, y, true);
-    else if (noting && drag == DragKind::Orbit && std::hypot(x - downX, y - downY) < 4) addNoteAt(x, y);
+    else if (noting && (drag == DragKind::Orbit || drag == DragKind::Pan) && std::hypot(x - downX, y - downY) < 4) addNoteAt(x, y);
     drag = DragKind::None;
     cropHandle = -1;
     requestPaint();
@@ -826,7 +827,9 @@ bool App::onKey(UINT vk, bool down) {
     case '3': if (mdl) allModels([](ModelView& m) { m.view("right"); }); return done();
     case 'D': if (mdl) toggleMeasure(); return done();
     case 'N':
-        if (mdl && shift) { S.notesShow = !S.notesShow; S.save(); if (!S.notesShow) toggleNotes(0); toast(T(S.notesShow ? "note.shown" : "note.hidden")); requestPaint(); }
+        if (img && !compare && !shift) toggleNotes();
+        else if (img && shift) { S.notesShow = !S.notesShow; S.save(); if (!S.notesShow) toggleNotes(0); toast(T(S.notesShow ? "note.shown" : "note.hidden")); requestPaint(); }
+        else if (mdl && shift) { S.notesShow = !S.notesShow; S.save(); if (!S.notesShow) toggleNotes(0); toast(T(S.notesShow ? "note.shown" : "note.hidden")); requestPaint(); }
         else if (mdl) toggleNotes();
         return done();
     case 'X': if (mdl) toggleSection(); return done();

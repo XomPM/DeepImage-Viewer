@@ -1,4 +1,14 @@
-## DeepImage Viewer 1.0.12
+## DeepImage Viewer 1.0.13
+
+### 이미지 보기에서도 노트 (N)
+- 사진·그림 위를 클릭하면 그 점을 가리키는 **화살표와 설명 상자**가 붙습니다. 글(한글, 여러 줄)·사진(파일 또는 Ctrl+V)·색 6가지, 3D 노트와 똑같이 씁니다.
+- 확대·축소·이동해도 상자는 읽기 좋은 크기 그대로 점을 따라갑니다. 상자를 끌어 옮기고 클릭해서 고칩니다. Shift+N 숨기기/보이기
+- **저장(다른 이름)·복사할 때 화면에 보이는 모양 그대로 그림에 들어갑니다.** 원본 파일에 덮어쓸 때는 노트가 두 번 생기지 않도록 노트로만 남겨 둡니다.
+- 노트는 `파일이름.dvnotes`에 자동 저장되어 다시 열면 그대로 나옵니다.
+- 툴바의 노트 버튼 또는 N 키
+
+
+## 1.0.12에서 추가된 기능
 
 ### 3D 화면 캡처 → 새 창에서 바로 표시하기 (C)
 - 3D 보기에서 **C**(또는 툴바의 카메라 버튼 → 캡처)를 누르면 보이는 화면을 그림으로 저장하고, **새 창에서 표시하기 모드로 바로 엽니다.** 펜·화살표·도형·모자이크와 편집 기능을 그대로 쓸 수 있습니다.
@@ -16,7 +26,7 @@
 - 캡처할 때 노트도 함께 그려집니다.
 
 ### 설치 파일
-- **DeepImage-Viewer-1.0.12-Setup-x64.exe**: 일반 Windows PC (Intel / AMD)
-- **DeepImage-Viewer-1.0.12-Setup-arm64.exe**: ARM 기반 Windows PC (Snapdragon 등)
+- **DeepImage-Viewer-1.0.13-Setup-x64.exe**: 일반 Windows PC (Intel / AMD)
+- **DeepImage-Viewer-1.0.13-Setup-arm64.exe**: ARM 기반 Windows PC (Snapdragon 등)
 - **Portable zip**: 설치 없이 실행 (탐색기 썸네일 미포함)
 - **DeepImage-Thumbnail-Help.zip**: 탐색기 썸네일 문제 해결 안내서 + 진단 도구

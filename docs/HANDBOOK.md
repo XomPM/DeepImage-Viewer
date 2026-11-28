@@ -1,7 +1,7 @@
 # DeepImage Viewer — 개발 핸드북 (Claude 작업용)
 
 > 새 채팅에서 이 프로젝트를 이어받을 때 **가장 먼저 읽는 문서**. 사용자와 확정한 기능·디자인·빌드·배포 절차를 정리한다.
-> 마지막 갱신: 2026-11-26 · 현재 버전 **1.0.12**
+> 마지막 갱신: 2026-11-26 · 현재 버전 **1.0.13**
 
 ---
 
@@ -148,6 +148,10 @@ C++20, Windows 전용 API. Linux에서 **llvm-mingw**로 x64·ARM64 교차 빌�
 - 편집기: 왼쪽 위 카드 + 실제 Win32 EDIT 자식 창(IME·여러 줄·클립보드; 부모에 WS_CLIPCHILDREN 필요), WM_CTLCOLOREDIT로 색, EN_CHANGE → 텍스트 반영 + 타이머 6(700ms) 저장, Esc/Ctrl+Enter/Tab 닫기, 이미지 없는 클립보드 그림 Ctrl+V → 노트 사진. 상자 끌기 = 이동(UI Region drag), 클릭 = 편집.
 - 저장: `<모델>.dvnotes`(JSON, 사진 base64 PNG) 모델 옆, 압축 항목·쓰기 불가 폴더는 `%LOCALAPPDATA%\DMIND\DeepImage Viewer\Notes\<FNV해시>.dvnotes`. 노트가 0개면 파일 삭제. 모델 로드 시 `loadNotes()`, show()에서 `closeNoteEditor()`로 저장.
 
+### 이미지 노트 (1.0.13)
+- 3D 노트 코드(`notes.cpp`)를 이미지 보기에도 씀: 앵커 = 그림 픽셀 좌표(`model.x/y`, `snap = 3`), 화면 위치는 `view.toScreen`, 가려짐 없음. N = 노트 모드(비교·표시·스포이드·편집 해제), Shift+N 보이기. 클릭은 Pan 드래그가 4px 미만일 때. 이미지 해독 직후 `loadNotes()`.
+- 저장·복사: `composite(withMarkup)`에서 `inverse(view.matrix()) * M * 타일변환`으로 화면 배치 그대로 그려 넣음(WYSIWYG 크기). **원본 경로에 덮어쓸 때는 `notesInOutput=false`** — .dvnotes가 남아 있어 두 번 보이는 것을 막음. 편집 패널이 열려 있으면 노트를 그리지 않음.
+
 ### 정보 창
 - 버전 / 제작 **DMIND**(링크 → `https://www.godgok.com/3dmind/`) / 문의 메일 / **GitHub**(링크 → `https://github.com/XomPM/DeepImage-Viewer`). 링크는 강조색 + hover 밑줄 + 손 커서.
 
@@ -261,3 +265,4 @@ python3 package.py fonts        # → dist/
 - **1.0.10** (2026-11-26): 배경 제거 다듬기 패널 — 남기기/지우기 브러시, 물체 선택, 영역 다시 인식, 강도·가장자리·부드럽게·색 번짐 제거, 배경 투명/단색/흐림, 제거 영역 표시, 되돌리기. Wine에서 전 기능 확인, 실제 PC 확인 필요. Store: 1.0.7 게시 확인 후 2026-11-26 Submission 7로 1.0.10 제출(인증 중, 1.0.8·1.0.9는 Store 건너뜀). 패키지 페이지 URL `.../products/9NGVFW0BKS97/submissions/<id>/packages`, 목록은 `.../submissions/<id>/listings?languageid=61&languagecode=ko-kr`(en-us는 4), 새 기능 칸은 `textarea[aria-label=releaseNotes]`(최대 1500자).
 - **1.0.11** (2026-11-27): 업데이트 알림 + 버튼 한 번으로 설치(GitHub digest 검사, Setup `/update` 후 보던 파일 다시 열기), 정보 창 업데이트 확인·자동 확인 스위치. Wine에서 확인 → 다운로드·검사·Setup 실행·재실행까지 동작.
 - **1.0.12** (2026-11-28): 3D 화면 캡처(모델 옆 저장 → 새 창 표시 모드, 크기·배경·오버레이 옵션, 복사/다른 이름), 3D 노트(면·엣지·꼭짓점 화살표 + 글·사진, 회전해도 정면 유지, 가려지면 흐리게, .dvnotes 저장). Wine에서 확인.
+- **1.0.13** (2026-11-28): 이미지 보기 노트(화살표+글·사진, 저장·복사에 포함). GitHub 최신 릴리스는 아직 v1.0.10(1.0.11~1.0.13 release.cmd 미실행).

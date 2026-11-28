@@ -369,6 +369,7 @@ void App::drawImageStage() {
     dc->SetTransform(D2D1::Matrix3x2F::Identity());
     if (panel == EditPanel::Crop) drawCropOverlay();
     drawBgOverlay();
+    if (panel == EditPanel::None) { drawNotes(false, rcViewport); drawNoteCard(); }
     if (annot && markup.tool == Tool::Eraser && mouseInViewport && !U.overWidget(U.mx, U.my)) {
         float r = markup.ts().width / 2;
         G.circle(U.mx, U.my, r, rgba(0xFFFFFF, .95f), false, 1.5f);
@@ -725,6 +726,7 @@ void App::drawToolbars() {
                 {TbItem::Btn, "play", "slideshow", [this] { toggleSlideshow(); }, slideshow, files.size() > 1},
                 {TbItem::Btn, "pipette", "picker", [this] { togglePicker(); }, picking},
                 {TbItem::Btn, "pen-line", "annotate", [this] { toggleAnnot(1); }, false, !compare, TL("annot.title")},
+                {TbItem::Btn, "message-square-plus", "note.img", [this] { toggleNotes(); }, noting, !compare},
                 {TbItem::Btn, "sliders-horizontal", "edit", [this] { toggleEdit(1); }, false, !compare, TL("edit")},
                 {TbItem::Sep},
                 {TbItem::Btn, "copy", compare ? "copy.compare" : "copy", [this] { copyImage(); }},

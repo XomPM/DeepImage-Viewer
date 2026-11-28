@@ -354,6 +354,7 @@ public:
     void copyImage();
     void open3dPrint();
     void saveScreenshot();
+    bool notesInOutput = true; // saving over the picture itself keeps notes as notes (no double copy)
     bool startMarkup = false; // opened from a 3D capture: go straight to markup
     void refreshFolder();
     ComPtr<IWICBitmap> composite(bool white, bool withMarkup = true, bool withEffects = true);

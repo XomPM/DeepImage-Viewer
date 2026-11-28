@@ -354,6 +354,7 @@ void App::onImageDecoded() {
         cache[p.path] = p.img;
         cacheOrder.push_back(p.path);
     }
+    loadNotes();
     startPreload();
     if (startMarkup) { startMarkup = false; toggleAnnot(1); }
     ensureTimer();
@@ -878,6 +879,14 @@ ComPtr<IWICBitmap> App::composite(bool white, bool withMarkup, bool withEffects)
         dc->SetTransform(M * D2D1::Matrix3x2F(old._11, old._12, old._21, old._22, old._31, old._32));
         doc.draw(dc, 1.f, useFx ? fx.head() : nullptr, useFx ? fx.tail() : nullptr);
         if (withMarkup) markup.draw(dc, false);
+        if (withMarkup && notesInOutput && !notes.empty() && S.notesShow && notesKey == cur.path) {
+            // notes are laid out on screen: screen -> picture -> output
+            D2D1::Matrix3x2F inv = view.matrix();
+            if (inv.Invert()) {
+                dc->SetTransform(inv * M * D2D1::Matrix3x2F(old._11, old._12, old._21, old._22, old._31, old._32));
+                drawNotes(true, rcViewport);
+            }
+        }
         dc->SetTransform(old);
     }, white);
 }
@@ -927,7 +936,9 @@ void App::saveAs() {
     if (cz) { cz->GetSelectedControlItem(101, &q); cz->GetCheckButtonState(102, &keep); }
     float quality = (q - 200) / 100.f;
     bool flatten = container == GUID_ContainerFormatJpeg || container == GUID_ContainerFormatBmp;
+    notesInOutput = _wcsicmp(out.c_str(), cur.path.c_str()) != 0;
     auto px = composite(flatten);
+    notesInOutput = true;
     if (!px || !saveBitmap(out, container, px.Get(), quality, cur.path, keep != FALSE)) { toast(T("save.failed"), true); return; }
     markup.markSaved();
     editDirty = false;
