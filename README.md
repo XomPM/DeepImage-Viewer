@@ -4,8 +4,12 @@
 
 Made by **DMIND** · dmind114@gmail.com
 
-![3D 보기](docs/screenshots/screenshot1.png)
-![두 이미지 비교](docs/screenshots/screenshot2.png)
+![3D 노트 — 면·엣지·꼭짓점에 화살표와 설명](docs/screenshots/notes3d.png)
+![3D 거리 측정](docs/screenshots/measure3d.png)
+![두 이미지 비교](docs/screenshots/compare.png)
+![표시하기 — 펜·도형·모자이크·색상 추출](docs/screenshots/markup.png)
+
+[Microsoft Store에서 받기](https://apps.microsoft.com/detail/9NGVFW0BKS97)
 
 ## 다운로드 · Download
 
@@ -13,9 +17,9 @@ Made by **DMIND** · dmind114@gmail.com
 
 | 파일 | 대상 |
 |---|---|
-| `DeepImage-Viewer-1.0.2-Setup-x64.exe` | 일반 Windows PC (Intel / AMD) |
-| `DeepImage-Viewer-1.0.2-Setup-arm64.exe` | ARM 기반 Windows PC (Snapdragon 등) |
-| `DeepImage-Viewer-1.0.2-Portable-*.zip` | 설치 없이 실행 (탐색기 썸네일 제외) |
+| `DeepImage-Viewer-1.0.14-Setup-x64.exe` | 일반 Windows PC (Intel / AMD) |
+| `DeepImage-Viewer-1.0.14-Setup-arm64.exe` | ARM 기반 Windows PC (Snapdragon 등) |
+| `DeepImage-Viewer-1.0.14-Portable-*.zip` | 설치 없이 실행 (탐색기 썸네일 제외) |
 
 설치는 현재 사용자 계정에만 진행되어 관리자 권한이 필요 없습니다. Windows 10 / 11.
 
@@ -24,9 +28,13 @@ Made by **DMIND** · dmind114@gmail.com
 - **이미지:** JPG, PNG, GIF(애니메이션), WebP, HEIC, AVIF, TIFF, BMP, SVG, PSD, TGA, RAW 등
 - **3D:** STL, 3MF, OBJ, PLY, glTF/GLB, FBX, STEP/STP, IGES/IGS, BREP, DAE, 3DS, AMF
 - **G-code:** 슬라이서가 넣은 미리보기 이미지 표시 (.gcode / .gco / .bgcode — PNG·JPG·QOI)
-- **보기:** 전체 보기 · 화면 꽉 차게 · 폭 맞춤 · 높이 맞춤 · 1:1 (선택 기억), 두 이미지 비교 모드
-- **표시:** 펜, 형광펜, 직선, 화살표, 사각형, 원, 모자이크, 마스크, 선택·이동, 색상·굵기
-- **편집:** 자르기, 크기 조절, 밝기·대비·색 보정, 회전·반전, 다른 형식으로 저장
+- **압축 파일:** ZIP · CBZ · TAR · CBT를 폴더처럼 보기, PgUp/PgDn 폴더 이동
+- **보기:** 전체 보기 · 화면 꽉 차게(몰입) · 폭 맞춤 · 높이 맞춤 · 1:1, 두 이미지 비교, 슬라이드쇼(F5), 색상 추출(I)
+- **표시:** 펜, 형광펜, 직선, 화살표, 사각형, 원, 모자이크, 마스크, **노트**(화살표 + 글·사진, 글자·상자 크기), 선택·이동·크기 조절
+- **붙여넣기 (Ctrl+V):** 클립보드 그림을 지금 그림 안에(옮기기·크기 조절) 또는 새 그림으로
+- **편집:** 자르기, 크기 조절, 밝기·대비·색 보정, 회전·반전, **AI 배경 제거**(PC 안에서 처리, 브러시·물체 선택·영역 다시 인식·배경 단색/흐림), 다른 형식으로 저장
+- **3D 도구:** 단면 보기(X), 거리 측정(D), 3D 비교(V), **3D 노트**(N, 회전해도 정면 유지), **화면 캡처**(C → 모델 옆에 저장하고 새 창에서 표시하기)
+- **업데이트 알림:** 새 버전이 나오면 알림 + 버튼 한 번으로 설치
 - **정보:** EXIF·촬영 정보, 히스토그램
 - **탐색기 썸네일:** 3D 파일과 일부 이미지 형식
 - OS 테마(라이트/다크)와 강조색 연동, 한국어 / English
@@ -45,6 +53,11 @@ Made by **DMIND** · dmind114@gmail.com
 | 0 / 1 | 전체 보기 / 실제 크기 |
 | Tab | 정보 패널 |
 | E | 표시(마크업) 모드 |
+| N | 노트 (이미지: 표시하기의 노트 도구, 3D: 노트 모드) · Shift+N 숨기기 |
+| Ctrl+V | 클립보드 그림 붙여넣기 |
+| B | AI 배경 제거 |
+| I / F5 / P | 색상 추출 / 슬라이드쇼 / 메뉴 고정 |
+| X / D / C (3D) | 단면 / 거리 측정 / 화면 캡처 |
 | F | 형광펜 |
 | R | 크기 조절 |
 | M | 색 보정 |
