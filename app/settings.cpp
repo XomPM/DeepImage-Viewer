@@ -30,6 +30,11 @@ void Settings::load() {
     slideDelay = std::clamp((int)getDword(k, L"SlideDelay", 3), 1, 60);
     pinChrome = getDword(k, L"PinChrome", 0) != 0;
     updateCheck = getDword(k, L"UpdateCheck", 1) != 0;
+    capScale = (int)getDword(k, L"CapScale", 1) % 3;
+    capBg = (int)getDword(k, L"CapBg", 0) % 3;
+    capOverlay = getDword(k, L"CapOverlay", 1) != 0;
+    capOpen = getDword(k, L"CapOpen", 1) != 0;
+    notesShow = getDword(k, L"NotesShow", 1) != 0;
     updateLast = getDword(k, L"UpdateLastCheck", 0);
     thumbColor = getDword(k, L"ThumbColor", 0);
     thumbColorAll = getDword(k, L"ThumbColorAll", 0) != 0;
@@ -58,6 +63,11 @@ void Settings::save() const {
     setDword(k, L"SlideDelay", slideDelay);
     setDword(k, L"PinChrome", pinChrome);
     setDword(k, L"UpdateCheck", updateCheck);
+    setDword(k, L"CapScale", capScale);
+    setDword(k, L"CapBg", capBg);
+    setDword(k, L"CapOverlay", capOverlay);
+    setDword(k, L"CapOpen", capOpen);
+    setDword(k, L"NotesShow", notesShow);
     setDword(k, L"UpdateLastCheck", updateLast);
     setDword(k, L"ThumbColor", thumbColor);
     setDword(k, L"ThumbColorAll", thumbColorAll);

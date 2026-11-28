@@ -1,6 +1,7 @@
 // DeepImage Viewer — update check, download and hand-over to Setup (see update.h) + the app's update UI
 // Copyright (c) DMIND <dmind114@gmail.com>. MIT License.
 #include "update.h"
+#include "json.h"
 
 #include "app.h"
 #include "archive.h"
@@ -21,136 +22,6 @@ namespace {
 
 constexpr const wchar_t* kLatestApi = L"https://api.github.com/repos/XomPM/DeepImage-Viewer/releases/latest";
 constexpr const wchar_t* kReleasesPage = L"https://github.com/XomPM/DeepImage-Viewer/releases/latest";
-
-// ------------------------------------------------------------------ tiny JSON reader (enough for the GitHub API)
-struct J {
-    enum T { Null, Bool, Num, Str, Arr, Obj } t = Null;
-    std::string s;
-    double n = 0;
-    std::vector<J> a;
-    std::vector<std::pair<std::string, J>> o;
-    const J* get(const char* k) const {
-        for (auto& [key, v] : o) if (key == k) return &v;
-        return nullptr;
-    }
-    std::string str(const char* k) const { auto* v = get(k); return v && v->t == Str ? v->s : std::string(); }
-};
-
-struct Parser {
-    const char* p;
-    const char* e;
-    int depth = 0;
-    void ws() { while (p < e && (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t')) ++p; }
-    static void utf8(std::string& out, uint32_t c) {
-        if (c < 0x80) out += (char)c;
-        else if (c < 0x800) { out += (char)(0xC0 | (c >> 6)); out += (char)(0x80 | (c & 63)); }
-        else if (c < 0x10000) { out += (char)(0xE0 | (c >> 12)); out += (char)(0x80 | ((c >> 6) & 63)); out += (char)(0x80 | (c & 63)); }
-        else { out += (char)(0xF0 | (c >> 18)); out += (char)(0x80 | ((c >> 12) & 63)); out += (char)(0x80 | ((c >> 6) & 63)); out += (char)(0x80 | (c & 63)); }
-    }
-    bool hex4(uint32_t& v) {
-        if (e - p < 4) return false;
-        v = 0;
-        for (int i = 0; i < 4; ++i) {
-            char c = *p++;
-            v <<= 4;
-            if (c >= '0' && c <= '9') v |= c - '0';
-            else if (c >= 'a' && c <= 'f') v |= c - 'a' + 10;
-            else if (c >= 'A' && c <= 'F') v |= c - 'A' + 10;
-            else return false;
-        }
-        return true;
-    }
-    bool string(std::string& out) {
-        if (p >= e || *p != '"') return false;
-        ++p;
-        while (p < e && *p != '"') {
-            if (*p != '\\') { out += *p++; continue; }
-            if (++p >= e) return false;
-            char c = *p++;
-            switch (c) {
-            case 'n': out += '\n'; break;
-            case 't': out += '\t'; break;
-            case 'r': out += '\r'; break;
-            case 'b': out += '\b'; break;
-            case 'f': out += '\f'; break;
-            case 'u': {
-                uint32_t v;
-                if (!hex4(v)) return false;
-                if (v >= 0xD800 && v < 0xDC00 && e - p >= 6 && p[0] == '\\' && p[1] == 'u') {
-                    p += 2;
-                    uint32_t lo;
-                    if (!hex4(lo)) return false;
-                    v = 0x10000 + ((v - 0xD800) << 10) + (lo - 0xDC00);
-                }
-                utf8(out, v);
-                break;
-            }
-            default: out += c;
-            }
-        }
-        if (p >= e) return false;
-        ++p;
-        return true;
-    }
-    bool value(J& v) {
-        if (++depth > 64) return false;
-        ws();
-        if (p >= e) return false;
-        bool ok = true;
-        if (*p == '{') {
-            v.t = J::Obj;
-            ++p;
-            ws();
-            if (p < e && *p == '}') ++p;
-            else
-                for (;;) {
-                    std::string k;
-                    ws();
-                    if (!string(k)) { ok = false; break; }
-                    ws();
-                    if (p >= e || *p++ != ':') { ok = false; break; }
-                    J c;
-                    if (!value(c)) { ok = false; break; }
-                    v.o.emplace_back(std::move(k), std::move(c));
-                    ws();
-                    if (p < e && *p == ',') { ++p; continue; }
-                    if (p < e && *p == '}') { ++p; break; }
-                    ok = false;
-                    break;
-                }
-        } else if (*p == '[') {
-            v.t = J::Arr;
-            ++p;
-            ws();
-            if (p < e && *p == ']') ++p;
-            else
-                for (;;) {
-                    J c;
-                    if (!value(c)) { ok = false; break; }
-                    v.a.push_back(std::move(c));
-                    ws();
-                    if (p < e && *p == ',') { ++p; continue; }
-                    if (p < e && *p == ']') { ++p; break; }
-                    ok = false;
-                    break;
-                }
-        } else if (*p == '"') {
-            v.t = J::Str;
-            ok = string(v.s);
-        } else if (!strncmp(p, "true", std::min<size_t>(4, e - p))) { v.t = J::Bool; v.n = 1; p += 4; }
-        else if (!strncmp(p, "false", std::min<size_t>(5, e - p))) { v.t = J::Bool; p += 5; }
-        else if (!strncmp(p, "null", std::min<size_t>(4, e - p))) { v.t = J::Null; p += 4; }
-        else {
-            char* end = nullptr;
-            v.t = J::Num;
-            v.n = strtod(p, &end);
-            if (end == p) ok = false;
-            else p = end;
-        }
-        --depth;
-        return ok && p <= e;
-    }
-};
 
 // ------------------------------------------------------------------ HTTP
 struct Http {
@@ -248,9 +119,8 @@ bool fetchLatest(Info& out) {
         body.append(buf, n);
         if (body.size() > (4u << 20)) return false;
     }
-    J root;
-    Parser ps{body.data(), body.data() + body.size()};
-    if (!ps.value(root) || root.t != J::Obj) return false;
+    json::J root;
+    if (!json::parse(body, root) || root.t != json::J::Obj) return false;
     std::string tag = root.str("tag_name");
     if (tag.empty() || root.get("draft") && root.get("draft")->n) return false;
     if (tag[0] == 'v' || tag[0] == 'V') tag.erase(0, 1);
@@ -258,10 +128,10 @@ bool fetchLatest(Info& out) {
     out.page = widen(root.str("html_url"));
     if (out.page.rfind(L"https://github.com/", 0) != 0) out.page = kReleasesPage;
     const std::wstring want = std::wstring(L"-Setup-") + nativeArch() + L".exe";
-    const J* assets = root.get("assets");
+    const json::J* assets = root.get("assets");
     for (int pass = 0; pass < 2 && out.url.empty(); ++pass) {
         const std::wstring suffix = pass == 0 ? want : L"-Setup-x64.exe"; // x64 runs under emulation on ARM64
-        if (!assets || assets->t != J::Arr) break;
+        if (!assets || assets->t != json::J::Arr) break;
         for (auto& a : assets->a) {
             std::wstring name = widen(a.str("name"));
             if (name.size() < suffix.size() || _wcsicmp(name.c_str() + name.size() - suffix.size(), suffix.c_str())) continue;

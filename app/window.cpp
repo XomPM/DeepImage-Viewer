@@ -240,6 +240,12 @@ LRESULT App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         } else if (w == 5) {
             KillTimer(h, 5);
             checkForUpdate(false);
+        } else if (w == 6) {
+            KillTimer(h, 6);
+            saveNotes();
+        } else if (w == 7) {
+            KillTimer(h, 7);
+            requestPaint();
         } else if (w == 3) {
             KillTimer(h, 3);
             armChromeTimer();
@@ -340,6 +346,27 @@ LRESULT App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_APP_BG: onBgJob((BgJob*)l); return 0;
     case WM_APP_BG_STAGE: onBgStage((uint64_t)w, (BgStage*)l); return 0;
     case WM_APP_UPD: onUpdateMsg(w, l); return 0;
+    case WM_CTLCOLOREDIT:
+        if ((HWND)l == noteEditHwnd && noteEditBrush) {
+            HDC dcx = (HDC)w;
+            SetTextColor(dcx, RGB((int)(P.text.r * 255), (int)(P.text.g * 255), (int)(P.text.b * 255)));
+            SetBkColor(dcx, P.dark ? RGB(0x2A, 0x2A, 0x2E) : RGB(0xF2, 0xF2, 0xF5));
+            return (LRESULT)noteEditBrush;
+        }
+        break;
+    case WM_COMMAND:
+        if (LOWORD(w) == 1001 && HIWORD(w) == EN_CHANGE) {
+            if (noteEdit >= 0 && noteEdit < (int)notes.size() && noteEditHwnd) {
+                int n = GetWindowTextLengthW(noteEditHwnd);
+                std::wstring t(n, 0);
+                GetWindowTextW(noteEditHwnd, t.data(), n + 1);
+                notes[noteEdit].text = t;
+                SetTimer(h, 6, 700, nullptr); // saved shortly after typing stops
+            }
+            requestPaint();
+            return 0;
+        }
+        break;
     case WM_APP_BG_PROGRESS:
         if ((uint64_t)w == bgSeq && bgBusy) {
             if ((int)l < 0) bgDownloading = false;
@@ -542,7 +569,7 @@ void App::onMouseMove(float x, float y, WPARAM keys) {
     if (inVp != mouseInViewport) { mouseInViewport = inVp; redraw = true; }
     if (drag == DragKind::None) pokeChrome(x, y);
     if (panel == EditPanel::Bg && (bgTool == 1 || bgTool == 2) && (inVp || drag == DragKind::BgBrush)) redraw = true; // brush cursor
-    if (measuring && drag == DragKind::None && mode == Mode::Model && !U.overWidget(x, y)) pickMeasure(x, y, false);
+    if ((measuring || noting) && drag == DragKind::None && mode == Mode::Model && !U.overWidget(x, y)) pickMeasure(x, y, false);
     if (picking) {
         bool was = hoverOk;
         hoverOk = inVp && !U.overWidget(x, y) && sampleAt(x, y, hoverRgb);
@@ -629,6 +656,7 @@ void App::onMouseUp(float x, float y, int button) {
     }
     // a click (not a drag) while measuring places a point
     if (measuring && drag == DragKind::Orbit && std::hypot(x - downX, y - downY) < 4) pickMeasure(x, y, true);
+    else if (noting && drag == DragKind::Orbit && std::hypot(x - downX, y - downY) < 4) addNoteAt(x, y);
     drag = DragKind::None;
     cropHandle = -1;
     requestPaint();
@@ -643,7 +671,7 @@ void App::onDoubleClick(float x, float y) {
         ensureTimer();
         requestPaint();
     } else if (mode == Mode::Model) {
-        if (measuring) return; // double clicks are two measurement clicks
+        if (measuring || noting) return; // double clicks are two measurement / note clicks
         allModels([](ModelView& m) { m.view("iso"); });
         ensureTimer();
         requestPaint();
@@ -724,8 +752,8 @@ bool App::onKey(UINT vk, bool down) {
     if (ctrl) {
         switch (vk) {
         case 'O': guardUnsaved([this] { openDialog(); }); return done();
-        case 'S': if (panel == EditPanel::Bg) return done(); if (img) saveAs(); else if (mdl) saveScreenshot(); return done();
-        case 'C': if (img && panel != EditPanel::Bg) copyImage(); return done();
+        case 'S': if (panel == EditPanel::Bg) return done(); if (img) saveAs(); else if (mdl) capture3d(2); return done();
+        case 'C': if (img && panel != EditPanel::Bg) copyImage(); else if (mdl) capture3d(1); return done();
         case 'Z': if (panel == EditPanel::Bg) bgUndo(); else if (annot) { shift ? markup.redo() : markup.undo(); } else if (img && editMode) undoEdit(); return done();
         case 'Y': if (annot) markup.redo(); return done();
         case 'R': if (img && !annot && panel == EditPanel::None) rotateViews(shift ? -90 : 90); return done();
@@ -797,12 +825,19 @@ bool App::onKey(UINT vk, bool down) {
     case '2': if (mdl) allModels([](ModelView& m) { m.view("top"); }); return done();
     case '3': if (mdl) allModels([](ModelView& m) { m.view("right"); }); return done();
     case 'D': if (mdl) toggleMeasure(); return done();
+    case 'N':
+        if (mdl && shift) { S.notesShow = !S.notesShow; S.save(); if (!S.notesShow) toggleNotes(0); toast(T(S.notesShow ? "note.shown" : "note.hidden")); requestPaint(); }
+        else if (mdl) toggleNotes();
+        return done();
     case 'X': if (mdl) toggleSection(); return done();
     case 'B': if (img) removeBackground(); else if (mdl) { bool v = !mv.bbox; allModels([v](ModelView& m) { m.bbox = v; m.invalidate(); }); } return done();
     case VK_F11: toggleFullscreen(); return done();
     case VK_ESCAPE:
         // cancel what is in progress first; minimise only when there is nothing to cancel
-        if (picking) togglePicker(0);
+        if (capMenu) { capMenu = false; requestPaint(); }
+        else if (noteEdit >= 0) closeNoteEditor();
+        else if (noting) toggleNotes(0);
+        else if (picking) togglePicker(0);
         else if (measuring) { if (measA.ok) { measA.ok = false; requestPaint(); } else toggleMeasure(0); }
         else if (section) toggleSection(0);
         else if (slideshow) toggleSlideshow(0);
@@ -820,7 +855,7 @@ bool App::onKey(UINT vk, bool down) {
         return done();
     case 'F': if (img && !compare) { toggleAnnot(1); setTool(Tool::Hl); } return done();
     case 'E': if (img && !compare) toggleAnnot(); return done();
-    case 'C': if (img && !compare) { if (!editMode) toggleEdit(1); beginCrop(); } return done();
+    case 'C': if (img && !compare) { if (!editMode) toggleEdit(1); beginCrop(); } else if (mdl) capture3d(0); return done();
     case 'V': if (img || mdl) toggleCompare(); return done();
     case 'T': S.filmstrip = !S.filmstrip; S.save(); return done();
     case 'W': if (mdl) { bool v = !mv.wire; allModels([v](ModelView& m) { m.wire = v; m.invalidate(); }); } return done();

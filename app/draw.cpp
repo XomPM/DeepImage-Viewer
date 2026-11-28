@@ -114,6 +114,7 @@ void App::paint() {
     drawTitlebar();
     if (mode != Mode::Empty && !modal.kind) { drawSlidePill(); drawPicker(); }
     if (bgBusy) drawBgBusy();
+    drawCaptureMenu();
     drawUpdateBar();
     drawToasts();
     if (modal.kind) {
@@ -441,15 +442,19 @@ void App::drawModelStage() {
         pane(mvR, rcPaneR, kCmpRight, indexR, loadingR, errorR);
         G.fill(R(rcPaneL.right, rcViewport.top, rcPaneR.left, rcViewport.bottom), P.line2);
         if (mv.hasModel()) drawGizmo();
+        drawNotes(false, rcPaneL);
         drawMeasure();
         drawSectionBar();
+        drawNoteCard();
         return;
     }
     if (!mv.hasModel() || !mv.bitmap() || !errorKey.empty()) return;
     G.dc->DrawBitmap(mv.bitmap(), rcViewport, 1, D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
     drawGizmo();
+    drawNotes(false, rcViewport);
     drawMeasure();
     drawSectionBar();
+    drawNoteCard();
     if (!loading && !section) drawPrintButton();
     if (!hintGone && !loading) {
         std::wstring h = T("v3d.hint");
@@ -541,6 +546,7 @@ void App::toolbar(uint64_t id, const std::vector<TbItem>& items, float cx, float
         case TbItem::Btn: {
             float bw = it.label ? 34 + 8 + G.textWidth(it.label, 12.5f, 600) : 34;
             U.toolButton(id ^ (n * 7919), RW(x, r.top + 5, bw, 34), it.icon, it.tip, it.action, it.on, it.enabled, it.label);
+            if (it.icon && !strcmp(it.icon, "camera")) capBtnRect = RW(x, r.top + 5, bw, 34);
             x += bw;
             break;
         }
@@ -747,13 +753,14 @@ void App::drawToolbars() {
             {TbItem::Sep},
             {TbItem::Btn, "section", "v3d.section", [this] { toggleSection(); }, section},
             {TbItem::Btn, "ruler", "v3d.measure", [this] { toggleMeasure(); }, measuring},
+            {TbItem::Btn, "message-square-plus", "v3d.note", [this] { toggleNotes(); }, noting},
             {TbItem::Btn, "columns-2", "compare3d", [this] { toggleCompare(); }, compare, twoModels},
             {TbItem::Sep},
             {TbItem::Btn, "grid-3x3", "v3d.grid", [this, inv] { bool v = !mv.grid; allModels([v](ModelView& m) { m.grid = v; }); inv(); }, mv.grid},
             {TbItem::Btn, "bbox", "v3d.bbox", [this, inv] { bool v = !mv.bbox; allModels([v](ModelView& m) { m.bbox = v; }); inv(); }, mv.bbox},
             {TbItem::Btn, "orbit", "v3d.rotate", [this, inv] { bool v = !mv.autoRotate; allModels([v](ModelView& m) { m.autoRotate = v; }); inv(); }, mv.autoRotate},
             {TbItem::Sep},
-            {TbItem::Btn, "camera", "v3d.shot", [this] { saveScreenshot(); }},
+            {TbItem::Btn, "camera", "v3d.shot", [this] { capMenu = !capMenu; requestPaint(); }, capMenu},
             {TbItem::Btn, "play", "slideshow", [this] { toggleSlideshow(); }, slideshow, files.size() > 1},
             {TbItem::Btn, "panel-right-open", "info", [this] { toggleInfo(); }, S.infoPanel},
             {TbItem::Btn, "pin", "pin", [this] { togglePin(); }, S.pinChrome},
@@ -1492,6 +1499,35 @@ static const uint32_t kMeasColors[8] = {0xFFC233, 0x38BDF8, 0xF472B6, 0x4ADE80, 
 void App::drawMeasure() {
     if (!measuring) return;
     const bool two = compare && compareModels;
+    if (measCapture) {
+        // capture overlay: the finished lines of one pane only, no hover, no list
+        const bool side = measCaptureSide == 1;
+        for (size_t i = 0; i < measures.size(); ++i) {
+            const auto& m = measures[i];
+            if (m.right != side) continue;
+            const D2D1_RECT_F r = two ? (side ? rcPaneR : rcPaneL) : rcViewport;
+            ModelView& mm = side && two ? mvR : mv;
+            float ax, ay, bx, by;
+            if (!mm.project(m.a.world, rw(r), rh(r), ax, ay) || !mm.project(m.b.world, rw(r), rh(r), bx, by)) continue;
+            ax += r.left; ay += r.top; bx += r.left; by += r.top;
+            const D2D1_COLOR_F c = rgba(kMeasColors[m.color % 8]), dk = rgba(0x000000, .55f);
+            G.line(ax, ay, bx, by, dk, 4);
+            G.line(ax, ay, bx, by, c, 2);
+            G.circle(ax, ay, 5.5f, dk); G.circle(ax, ay, 4, c);
+            G.circle(bx, by, 5.5f, dk); G.circle(bx, by, 4, c);
+            float dx = m.b.model.x - m.a.model.x, dy = m.b.model.y - m.a.model.y, dz = m.b.model.z - m.a.model.z;
+            std::wstring t = lengthText(std::sqrt(dx * dx + dy * dy + dz * dz));
+            std::wstring nn = fmtf(L"%d", (int)i + 1);
+            float tw = G.textWidth(t, 12, 700) + 16 + 18, mx = (ax + bx) / 2, my = (ay + by) / 2;
+            D2D1_RECT_F cr = RW(mx - tw / 2, my - 26, tw, 22);
+            G.fill(cr, rgba(0x111214, .88f), 6);
+            G.fill(RW(cr.left, cr.top, 4, 22), c, 2);
+            G.circle(cr.left + 15, cr.top + 11, 7.5f, c);
+            G.text(nn, RW(cr.left + 7.5f, cr.top, 15, 22), 10, rgba(0x111214), 800, AC);
+            G.text(t, RW(cr.left + 18, cr.top, tw - 18, 22), 12, rgba(0xFFFFFF), 700, AC);
+        }
+        return;
+    }
     auto paneOf = [&](bool right) { return two ? (right ? rcPaneR : rcPaneL) : rcViewport; };
     auto modelOf = [&](bool right) -> ModelView& { return right && two ? mvR : mv; };
     auto toScreen = [&](const ModelView::Hit& h, bool right, float& x, float& y) {

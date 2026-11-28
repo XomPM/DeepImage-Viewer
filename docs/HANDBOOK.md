@@ -1,7 +1,7 @@
 # DeepImage Viewer — 개발 핸드북 (Claude 작업용)
 
 > 새 채팅에서 이 프로젝트를 이어받을 때 **가장 먼저 읽는 문서**. 사용자와 확정한 기능·디자인·빌드·배포 절차를 정리한다.
-> 마지막 갱신: 2026-11-26 · 현재 버전 **1.0.11**
+> 마지막 갱신: 2026-11-26 · 현재 버전 **1.0.12**
 
 ---
 
@@ -49,6 +49,9 @@ C++20, Windows 전용 API. Linux에서 **llvm-mingw**로 x64·ARM64 교차 빌�
 | `app/bgedit.*` | 배경 제거 마스크 파이프라인(Windows API 없음 — 리눅스 g++로 단독 테스트 가능) |
 | `app/bgpanel.cpp` | 배경 제거 작업 스레드, 다듬기 패널, 브러시·물체·영역 도구 |
 | `app/update.*` | 업데이트 확인(GitHub API releases/latest), Setup 다운로드·SHA-256 검사, Setup `/update` 실행, 알림 배너 |
+| `app/capture.cpp` | 3D 화면 캡처(옵션 팝오버, 모델 옆 저장, `--markup`으로 새 창) |
+| `app/notes.cpp` | 3D 노트(앵커 픽, 콜아웃, EDIT 자식 창 편집기, .dvnotes 저장) |
+| `app/json.h` | 미니 JSON 파서/quote/base64 (업데이트·노트 공용) |
 | `app/thumbs.cpp` | 썸네일 서비스(2스레드) + **디스크 캐시** |
 | `app/gfx.cpp` | D2D/DWrite/SVG 아이콘 (아이콘 root svg width/height = 요청 크기 — 아니면 24px로 그려지는 버그) |
 | `app/ui.cpp` | 위젯(toolButton, segmented, slider, swatch, toggle) — 휠은 맨 위 "휠 처리 영역"을 찾아 전달 |
@@ -133,6 +136,17 @@ C++20, Windows 전용 API. Linux에서 **llvm-mingw**로 x64·ARM64 교차 빌�
 - Setup `/update`: 환영 화면 없이 진행 화면 → 기존 설치 선택 유지(바탕화면 .lnk 존재, `Applications\DeepImage.exe\SupportedTypes` 키, `ThumbnailsRegistered`) → 끝나면 설치된 exe를 relaunch 인자로 실행하고 닫힘. 실패 시 오류 화면.
 - 포터블(exe 옆에 Uninstall.exe 없음)은 "다운로드 페이지"만. **버전마다 GitHub 릴리스(release.cmd)가 있어야 동작**. 1.0.10 이하 Setup은 `/update`를 모르므로 일반 설치 화면이 뜸(1.0.11 이상끼리만 매끄러움).
 - Wine 테스트: `http_proxy=$HTTPS_PROXY`를 주면 Wine WinHTTP가 컨테이너 프록시로 GitHub에 접속됨(Http::open은 AUTOMATIC → DEFAULT 프록시 순서로 재시도). `--about` 인자로 정보 창 바로 열기.
+
+### 3D 캡처 (1.0.12)
+- C 키 / 툴바 카메라 → 팝오버(`capMenu`, 위치는 toolbar()가 기록한 `capBtnRect`): 크기 `CapScale`(화면=G.scale, 2배, 4K 긴 변 3840, 최대 8192), 배경 `CapBg`(P.canvas/투명/흰색), `CapOverlay`(측정·노트), `CapOpen`. Ctrl+C 복사, Ctrl+S 다른 이름(기존 saveScreenshot 대체).
+- `renderCapture`: `mv.screenshot(W,H)` → `renderToWic`에서 배경 + 모델 + 오버레이를 `Translation(-pane)·Scale(k)·타일변환`으로 그림(측정은 `measCapture` 플래그로 완료된 선만). 비교 모드는 양쪽을 `joinSideBySide`.
+- 저장: 모델 폴더(압축 항목은 압축 파일 폴더)에 `<stem>_capture_YYYYMMDD-HHMMSS.png`(중복 시 -2..), 실패 시 사진\DeepImage Viewer. 열기: 자기 exe를 `--markup "<png>"`로 실행 → `startMarkup`이면 이미지 해독 후 `toggleAnnot(1)`.
+
+### 3D 노트 (1.0.12)
+- N = 노트 모드(측정과 배타), Shift+N = 보이기/숨기기(`NotesShow`). 클릭(드래그 아님) → `mv.pick`(꼭짓점/엣지 스냅) → `Note3D{model 좌표, snap, 화면 오프셋 dx/dy, text, color, img(≤480px), png}`. 콜아웃은 앵커 투영점+오프셋(화면 공간) → 회전해도 항상 정면·화살표 유지, 뷰포트 안으로 clamp.
+- 가려짐: `ModelView::visible(model)`(눈→점 선분이 다른 삼각형에 막히는지, 단면 고려, 400k 삼각형 이하만) 160ms 스로틀 + 타이머 7로 정착 후 재계산 → 흐리게(알파 직접 곱함 — **Wine은 PushLayer 불투명도를 무시**). 가려진 것 먼저 그림.
+- 편집기: 왼쪽 위 카드 + 실제 Win32 EDIT 자식 창(IME·여러 줄·클립보드; 부모에 WS_CLIPCHILDREN 필요), WM_CTLCOLOREDIT로 색, EN_CHANGE → 텍스트 반영 + 타이머 6(700ms) 저장, Esc/Ctrl+Enter/Tab 닫기, 이미지 없는 클립보드 그림 Ctrl+V → 노트 사진. 상자 끌기 = 이동(UI Region drag), 클릭 = 편집.
+- 저장: `<모델>.dvnotes`(JSON, 사진 base64 PNG) 모델 옆, 압축 항목·쓰기 불가 폴더는 `%LOCALAPPDATA%\DMIND\DeepImage Viewer\Notes\<FNV해시>.dvnotes`. 노트가 0개면 파일 삭제. 모델 로드 시 `loadNotes()`, show()에서 `closeNoteEditor()`로 저장.
 
 ### 정보 창
 - 버전 / 제작 **DMIND**(링크 → `https://www.godgok.com/3dmind/`) / 문의 메일 / **GitHub**(링크 → `https://github.com/XomPM/DeepImage-Viewer`). 링크는 강조색 + hover 밑줄 + 손 커서.
@@ -246,3 +260,4 @@ python3 package.py fonts        # → dist/
 - **1.0.9** (2026-11-26): AI 배경 제거(B) — BiRefNet lite + ONNX Runtime(DirectML → CPU 대체), 첫 사용 시 모델 다운로드. 설치 파일 약 15MB 증가. 실제 Windows의 GPU 경로·다운로드는 사용자 확인 필요.
 - **1.0.10** (2026-11-26): 배경 제거 다듬기 패널 — 남기기/지우기 브러시, 물체 선택, 영역 다시 인식, 강도·가장자리·부드럽게·색 번짐 제거, 배경 투명/단색/흐림, 제거 영역 표시, 되돌리기. Wine에서 전 기능 확인, 실제 PC 확인 필요. Store: 1.0.7 게시 확인 후 2026-11-26 Submission 7로 1.0.10 제출(인증 중, 1.0.8·1.0.9는 Store 건너뜀). 패키지 페이지 URL `.../products/9NGVFW0BKS97/submissions/<id>/packages`, 목록은 `.../submissions/<id>/listings?languageid=61&languagecode=ko-kr`(en-us는 4), 새 기능 칸은 `textarea[aria-label=releaseNotes]`(최대 1500자).
 - **1.0.11** (2026-11-27): 업데이트 알림 + 버튼 한 번으로 설치(GitHub digest 검사, Setup `/update` 후 보던 파일 다시 열기), 정보 창 업데이트 확인·자동 확인 스위치. Wine에서 확인 → 다운로드·검사·Setup 실행·재실행까지 동작.
+- **1.0.12** (2026-11-28): 3D 화면 캡처(모델 옆 저장 → 새 창 표시 모드, 크기·배경·오버레이 옵션, 복사/다른 이름), 3D 노트(면·엣지·꼭짓점 화살표 + 글·사진, 회전해도 정면 유지, 가려지면 흐리게, .dvnotes 저장). Wine에서 확인.

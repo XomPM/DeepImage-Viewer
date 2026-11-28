@@ -249,7 +249,9 @@ void App::show(int i, bool force) {
     measures.erase(std::remove_if(measures.begin(), measures.end(), [](const Measurement& m) { return !m.right; }), measures.end());
     if (!measARight) measA.ok = false;
     hover3d.ok = false;
-    if (files[i].kind != Kind::Model) { measuring = false; section = false; measures.clear(); }
+    if (files[i].kind != Kind::Model) { measuring = false; section = false; measures.clear(); noting = false; }
+    closeNoteEditor(); // saves the open note to the file it belongs to
+    capMenu = false;
     index = i;
     cur = files[i];
     const uint64_t s = ++seq;
@@ -353,6 +355,7 @@ void App::onImageDecoded() {
         cacheOrder.push_back(p.path);
     }
     startPreload();
+    if (startMarkup) { startMarkup = false; toggleAnnot(1); }
     ensureTimer();
     requestPaint();
 }
@@ -401,6 +404,7 @@ void App::onModelLoaded(uint64_t s, DvModel* m, const std::string& err) {
     ML.free(m);
     layout();
     mv.view("iso", false);
+    loadNotes();
     if (section) applySection();
     ensureTimer();
     requestPaint();

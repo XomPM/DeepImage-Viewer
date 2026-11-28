@@ -59,6 +59,10 @@ public:
     Hit pick(float sx, float sy, float vw, float vh) const;
     bool project(V3 world, float vw, float vh, float& sx, float& sy) const;
     bool pickable() const { return stats.triangles <= 400'000; } // hover snapping only for reasonably small meshes
+    // file coordinates -> world (what project() takes)
+    V3 toWorld(V3 m) const;
+    // false when the point (file coordinates) is hidden behind the model from the current camera, or cut by the section
+    bool visible(V3 m) const;
 
     ModelStats stats;
     // gizmo: screen-space directions (x right, y down) and depth for world X/Y/Z in model convention

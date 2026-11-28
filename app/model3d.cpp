@@ -812,6 +812,61 @@ bool ModelView::project(V3 p, float vw, float vh, float& sx, float& sy) const {
     return true;
 }
 
+V3 ModelView::toWorld(V3 p) const {
+    return V3{p.x * model_[0] + p.y * model_[4] + p.z * model_[8] + model_[12], p.x * model_[1] + p.y * model_[5] + p.z * model_[9] + model_[13],
+              p.x * model_[2] + p.y * model_[6] + p.z * model_[10] + model_[14]};
+}
+
+bool ModelView::visible(V3 m) const {
+    if (parts_.empty()) return true;
+    if (secOn_) {
+        float c = (&m.x)[secAxis_] - sectionCoord(secAxis_, secPos_);
+        if (secFlip_ ? c < 0 : c > 0) return false;
+    }
+    if (!pickable()) return true;
+    V3 eye, cx, cy, cz;
+    basis(eye, cx, cy, cz);
+    // eye in file coordinates (model_ is rotation + translation: inverse = transpose)
+    V3 q{eye.x - model_[12], eye.y - model_[13], eye.z - model_[14]};
+    V3 o{q.x * model_[0] + q.y * model_[1] + q.z * model_[2], q.x * model_[4] + q.y * model_[5] + q.z * model_[6],
+         q.x * model_[8] + q.y * model_[9] + q.z * model_[10]};
+    V3 d = sub(m, o);
+    const float len = std::sqrt(dot3(d, d));
+    if (len < 1e-12f) return true;
+    d = mulv(d, 1 / len);
+    const float limit = len - (radius_ * 0.004f + len * 1e-4f); // the surface the point sits on does not count
+    for (size_t s = 0; s < cpuPos_.size(); ++s) {
+        if (cpuPoints_[s]) continue;
+        const auto& P = cpuPos_[s];
+        const auto& I = cpuIdx_[s];
+        for (size_t k = 0; k + 2 < I.size(); k += 3) {
+            const float* a = &P[I[k] * 3];
+            const float* b = &P[I[k + 1] * 3];
+            const float* c = &P[I[k + 2] * 3];
+            V3 A{a[0], a[1], a[2]}, e1{b[0] - a[0], b[1] - a[1], b[2] - a[2]}, e2{c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+            V3 pv = cross3(d, e2);
+            float det = dot3(e1, pv);
+            if (std::fabs(det) < 1e-20f) continue;
+            float inv = 1 / det;
+            V3 tv = sub(o, A);
+            float u = dot3(tv, pv) * inv;
+            if (u < 0 || u > 1) continue;
+            V3 qv = cross3(tv, e1);
+            float v = dot3(d, qv) * inv;
+            if (v < 0 || u + v > 1) continue;
+            float tt = dot3(e2, qv) * inv;
+            if (tt <= 0 || tt >= limit) continue;
+            if (secOn_) {
+                V3 h = add(o, mulv(d, tt));
+                float cc = (&h.x)[secAxis_] - sectionCoord(secAxis_, secPos_);
+                if (secFlip_ ? cc < 0 : cc > 0) continue; // cut away: does not block
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
 ModelView::Hit ModelView::pick(float sx, float sy, float vw, float vh) const {
     Hit best;
     if (parts_.empty() || vw < 2 || vh < 2) return best;

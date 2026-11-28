@@ -52,6 +52,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     for (int i = 1; i < argc; ++i) {
         if (!wcscmp(argv[i], L"--settings")) settings = true;
         else if (!wcscmp(argv[i], L"--about")) about = true;
+        else if (!wcscmp(argv[i], L"--markup")) A.startMarkup = true;
         else if (argv[i][0] != L'-' && file.empty()) file = argv[i];
     }
     LocalFree(argv);

@@ -115,6 +115,60 @@ public:
     ModelView::Hit measA, hover3d;
     bool measARight = false, hoverRight = false;
     void toggleMeasure(int on = -1);
+    bool measCapture = false;   // drawMeasure draws only the finished lines (capture overlay)
+    int measCaptureSide = 0;
+
+    // 3D notes: arrows from a picked face / edge / vertex to a callout with text and a picture.
+    // The anchor lives in the file's coordinates; the callout keeps a screen offset, so it stays readable while orbiting.
+    struct Note3D {
+        V3 model;
+        int snap = 0;
+        float dx = 80, dy = -70;      // callout centre relative to the anchor (DIPs)
+        std::wstring text;
+        int color = 0;
+        ComPtr<IWICBitmap> img;       // optional picture (long side <= 480 px)
+        std::string png;              // the picture encoded, for the notes file
+        ComPtr<ID2D1Bitmap1> bmp;     // GPU copy (lazy)
+        bool hidden = false;          // behind the model from this camera
+        uint32_t id = 0;
+    };
+    std::vector<Note3D> notes;
+    bool noting = false;              // note mode: clicking the model adds a note
+    int noteEdit = -1;                // note in the editor card
+    uint32_t noteNextId = 1;
+    HWND noteEditHwnd = nullptr;
+    HFONT noteFont = nullptr;
+    HBRUSH noteEditBrush = nullptr;
+    WNDPROC noteEditProc0 = nullptr;
+    D2D1_RECT_F noteCardRect{}, noteEditRect{};
+    float noteDragX = 0, noteDragY = 0, noteDragDX = 0, noteDragDY = 0;
+    bool noteDragMoved = false;
+    DWORD noteVisTick = 0;
+    std::wstring notesFile;           // where this model's notes are kept
+    bool notesLoadedFor(const std::wstring& path) const { return notesKey == path; }
+    std::wstring notesKey;
+    void toggleNotes(int on = -1);
+    void loadNotes();
+    void saveNotes();
+    void addNoteAt(float x, float y);
+    void openNoteEditor(int i);
+    void closeNoteEditor();
+    void deleteNote(int i);
+    void noteImageFromFile(int i);
+    bool noteImageFromClipboard(int i);
+    void setNoteImage(int i, ComPtr<IWICBitmap> img);
+    void layoutNoteEditor();
+    void drawNotes(bool capture, D2D1_RECT_F pane);
+    void drawNoteCard();
+    void updateNoteVisibility(bool force);
+    LRESULT noteEditMsg(HWND h, UINT m, WPARAM w, LPARAM l);
+
+    // 3D capture: what the viewer shows, saved next to the model and opened in a new window to mark up
+    bool capMenu = false;
+    D2D1_RECT_F capBtnRect{};
+    ComPtr<IWICBitmap> renderCapture();
+    void capture3d(int action); // 0 save + (open), 1 copy, 2 save as
+    void drawCaptureMenu();
     // updates (GitHub installs; Store packages update through the Store)
     struct UpdResult { bool ok = false; upd::Info info; std::wstring path; std::string err; };
     int updState = 0;      // 0 idle, 1 checking, 2 up to date, 3 available, 4 downloading, 5 check failed
@@ -300,6 +354,7 @@ public:
     void copyImage();
     void open3dPrint();
     void saveScreenshot();
+    bool startMarkup = false; // opened from a 3D capture: go straight to markup
     void refreshFolder();
     ComPtr<IWICBitmap> composite(bool white, bool withMarkup = true, bool withEffects = true);
     ComPtr<IWICBitmap> compositeRight();
